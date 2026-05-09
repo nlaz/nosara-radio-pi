@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/bailey/.nvm/versions/node/v24.15.0/bin/node /home/bailey/radio/server.js
-WorkingDirectory=/home/bailey/radio
+ExecStart=/usr/local/bin/node /home/USER/radio/server.js
+WorkingDirectory=/home/USER/radio
 Restart=always
 RestartSec=5
 User=root
