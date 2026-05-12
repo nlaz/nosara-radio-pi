@@ -15,13 +15,38 @@ export function toMessage(err: unknown): string {
   return String(err);
 }
 
+// Stampede guard: when many in-flight requests resolve with 401 in the same
+// tick (1Hz status poll + a user action), only the first one navigates. The
+// rest still throw so callers' catch paths fire, but they don't redo the
+// page-level redirect that's already in progress.
+let authRedirecting = false;
+
+export function _resetAuthRedirectingForTests(): void {
+  authRedirecting = false;
+}
+
+function handleAuthRequired(): void {
+  if (authRedirecting) return;
+  authRedirecting = true;
+  const here = window.location.pathname + window.location.search + window.location.hash;
+  window.location.href = `/login?return=${encodeURIComponent(here)}`;
+}
+
 async function buildRequest(method: string, path: string, body?: unknown): Promise<Response> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const init: RequestInit = {
     method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   };
   const res = await fetch(path, init);
+  if (res.status === 401) {
+    handleAuthRequired();
+    const err = new Error('auth required') as ApiError;
+    err.status = 401;
+    throw err;
+  }
   if (!res.ok) {
     let message = res.statusText;
     try {

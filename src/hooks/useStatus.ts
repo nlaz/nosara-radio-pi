@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, toMessage } from '../api';
+import { api, isApiError, toMessage } from '../api';
 import type { AppStatus } from '../types';
 
 const POLL_MS = 1000;
@@ -32,6 +32,7 @@ export function useStatus(): UseStatusResult {
   useEffect(() => {
     cancelledRef.current = false;
     let cancelled = false;
+    let authLost = false;
     let timer: number | null = null;
 
     // Inner closure that closes over `cancelled` so the loop can't be
@@ -44,20 +45,26 @@ export function useStatus(): UseStatusResult {
         setError(null);
       } catch (err) {
         if (cancelled) return;
+        if (isApiError(err) && err.status === 401) {
+          // api.ts has already triggered window.location.href to /login.
+          // Stop polling so the page navigates cleanly.
+          authLost = true;
+          return;
+        }
         setError(toMessage(err));
       }
     };
 
     const tick = async () => {
-      if (cancelled) return;
+      if (cancelled || authLost) return;
       if (visibleRef.current) await fetchOnce();
-      if (cancelled) return;
+      if (cancelled || authLost) return;
       timer = window.setTimeout(tick, POLL_MS);
     };
 
     const onVisibility = () => {
       visibleRef.current = document.visibilityState === 'visible';
-      if (visibleRef.current && !cancelled) void fetchOnce();
+      if (visibleRef.current && !cancelled && !authLost) void fetchOnce();
     };
 
     document.addEventListener('visibilitychange', onVisibility);
