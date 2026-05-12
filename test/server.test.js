@@ -277,3 +277,124 @@ test('U4.T13: PUT /api/station with bad input returns 400; not-found returns 404
     assert.equal(nf.status, 404);
   });
 });
+
+test('U4.T14: POST /api/play with status=error and cached streamUrl calls setStation (not resume)', async () => {
+  const mocks = makeMocks();
+  await withApp(mocks, async ({ srv, refreshStation, mocks: m }) => {
+    await refreshStation();
+    m.stream._calls.length = 0; // drop the auto-start from refresh
+    m.stream._status = 'error'; // simulate ffplay failure after a successful start
+    await request(srv, 'POST', '/api/play');
+    const calls = m.stream._calls.map(([fn]) => fn);
+    assert.ok(calls.includes('setStation'));
+    assert.ok(!calls.includes('resume'));
+  });
+});
+
+test('U4.T15: POST /api/play with status=stopped and cached streamUrl calls setStation', async () => {
+  const mocks = makeMocks();
+  await withApp(mocks, async ({ srv, refreshStation, mocks: m }) => {
+    await refreshStation();
+    m.stream._calls.length = 0;
+    m.stream._status = 'stopped';
+    await request(srv, 'POST', '/api/play');
+    const calls = m.stream._calls.map(([fn]) => fn);
+    assert.ok(calls.includes('setStation'));
+  });
+});
+
+test('U4.T16: POST /api/play with no cache and no currentStreamUrl returns 503', async () => {
+  // No refreshStation call: stationCache stays null and stream._streamUrl is null.
+  const mocks = makeMocks();
+  mocks.stream._status = 'stopped';
+  await withApp(mocks, async ({ srv }) => {
+    const { status, json } = await request(srv, 'POST', '/api/play');
+    assert.equal(status, 503);
+    assert.match(json.error, /no stream available/i);
+  });
+});
+
+test('U4.T17: refreshStation skips auto-start when station is off-air (online=false)', async () => {
+  const mocks = makeMocks({
+    evenings: {
+      resolveStation: async () => ({
+        slug: 'demo', kind: 'station', streamUrl: 'http://stream/v1',
+        name: 'Demo', image: null, host: null, online: false, listeners: 0,
+        fetchedAt: new Date().toISOString(), apiReachable: true,
+      }),
+      InvalidInput, StationNotFoundError, EveningsApiUnreachable,
+    },
+  });
+  await withApp(mocks, async ({ refreshStation, mocks: m }) => {
+    await refreshStation();
+    const setStationCalls = m.stream._calls.filter(([fn]) => fn === 'setStation');
+    assert.equal(setStationCalls.length, 0);
+  });
+});
+
+test('U4.T18: refreshStation auto-starts media-kind URL even when online check absent', async () => {
+  const mocks = makeMocks({
+    evenings: {
+      resolveStation: async () => ({
+        slug: 'abc', kind: 'media', streamUrl: 'https://media.evenings.co/s/abc',
+        name: null, image: null, host: null, online: null, listeners: null,
+        fetchedAt: new Date().toISOString(), apiReachable: null,
+      }),
+      InvalidInput, StationNotFoundError, EveningsApiUnreachable,
+    },
+  });
+  await withApp(mocks, async ({ refreshStation, mocks: m }) => {
+    await refreshStation();
+    const setStationCalls = m.stream._calls.filter(([fn]) => fn === 'setStation');
+    assert.equal(setStationCalls.length, 1);
+    assert.equal(setStationCalls[0][1], 'https://media.evenings.co/s/abc');
+  });
+});
+
+test('U4.T19: cold-start /api/status returns description=null in station payload', async () => {
+  const mocks = makeMocks();
+  await withApp(mocks, async ({ srv }) => {
+    const { json } = await request(srv, 'GET', '/api/status');
+    assert.ok('description' in json.station);
+    assert.equal(json.station.description, null);
+  });
+});
+
+test('U4.T20: GET /api/status surfaces rebootPending after POST /api/reboot', async () => {
+  const mocks = makeMocks({ execFile: (_cmd, _args, cb) => setImmediate(() => cb(null, '', '')) });
+  await withApp(mocks, async ({ srv }) => {
+    const before = await request(srv, 'GET', '/api/status');
+    assert.equal(before.json.rebootPending, false);
+    await request(srv, 'POST', '/api/reboot');
+    const after = await request(srv, 'GET', '/api/status');
+    assert.equal(after.json.rebootPending, true);
+    const dup = await request(srv, 'POST', '/api/reboot');
+    assert.equal(dup.status, 409);
+    await new Promise((r) => setTimeout(r, 700)); // let timer fire so close() unrefs
+  });
+});
+
+test('U4.T21: GET /api/logs returns JSON error on journalctl failure', async () => {
+  const mocks = makeMocks({
+    execFile: (_cmd, _args, cb) => setImmediate(() => cb(new Error('boom'), '', 'stderr msg')),
+  });
+  await withApp(mocks, async ({ srv }) => {
+    const { status, json } = await request(srv, 'GET', '/api/logs');
+    assert.equal(status, 500);
+    assert.equal(json.error, 'stderr msg');
+  });
+});
+
+test('U4.T22: POST /api/presets rejects invalid slug via evenings.extractSlug', async () => {
+  const mocks = makeMocks({
+    evenings: {
+      extractSlug: () => { throw new InvalidInput('bad'); },
+      resolveStation: async () => ({ slug: 'demo', kind: 'station', streamUrl: null, name: null, image: null, host: null, online: null, listeners: null, fetchedAt: null, apiReachable: true }),
+      InvalidInput, StationNotFoundError, EveningsApiUnreachable,
+    },
+  });
+  await withApp(mocks, async ({ srv }) => {
+    const { status } = await request(srv, 'POST', '/api/presets', { slug: '!!bad!!', label: 'x' });
+    assert.equal(status, 400);
+  });
+});

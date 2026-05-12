@@ -22,7 +22,14 @@ function createApp(deps = {}) {
     backoffIndex: 0,
     pollTimer: null,
     rebootPending: false,
+    audioCache: { percent: null, muted: null }, // last known good ALSA state
   };
+
+  // Prime audio cache once at boot; tolerate failure (e.g., dev workstation
+  // without amixer). /api/status will still respond via the cache.
+  alsa.getVolume().then((v) => {
+    state.audioCache = { percent: v.percent, muted: v.muted };
+  }).catch(() => { /* leave cache as null; /api/status will surface error */ });
 
   async function resolveActive() {
     const cfg = config.read();
@@ -76,14 +83,15 @@ function createApp(deps = {}) {
   app.use(express.json());
 
   // --- Status (the aggregator the UI polls) -----------------------------
-  app.get('/api/status', async (_req, res) => {
-    let audio = { percent: null, muted: null, error: null };
-    try {
-      const v = await alsa.getVolume();
-      audio = { percent: v.percent, muted: v.muted, error: null };
-    } catch (err) {
-      audio = { percent: null, muted: null, error: err.message };
-    }
+  app.get('/api/status', (_req, res) => {
+    // Serve audio from cache. setVolume/setMuted update the cache on success;
+    // getVolume errors invalidate it. This keeps /api/status off the amixer
+    // hot path so the 1-second poll never blocks on a slow ALSA call.
+    const audio = {
+      percent: state.audioCache.percent,
+      muted: state.audioCache.muted,
+      error: state.audioCache.error || null,
+    };
     const cfg = config.read();
     const bridge = stream.getStatus();
     res.json({
@@ -94,20 +102,30 @@ function createApp(deps = {}) {
             fetchedAt: state.lastFetchAt,
             apiReachable: state.apiReachable,
           }
-        : { slug: cfg.active, kind: null, streamUrl: null, name: null, image: null, host: null, online: null, listeners: null, fetchedAt: null, apiReachable: state.apiReachable },
+        : { slug: cfg.active, kind: null, streamUrl: null, name: null, image: null, host: null, description: null, online: null, listeners: null, fetchedAt: null, apiReachable: state.apiReachable },
       audio,
       active: cfg.active,
       presets: cfg.presets,
+      rebootPending: state.rebootPending,
     });
   });
 
   // --- Playback lifecycle ----------------------------------------------
   app.post('/api/play', (_req, res) => {
-    const { status } = stream.getStatus();
+    const { status, streamUrl } = stream.getStatus();
     if (status === 'paused' || status === 'stopped' || status === 'error') {
       const cached = state.stationCache?.streamUrl;
-      if (cached && status !== 'paused') stream.setStation({ streamUrl: cached });
-      else stream.resume();
+      if (cached && status !== 'paused') {
+        stream.setStation({ streamUrl: cached });
+      } else if (status === 'paused' || streamUrl) {
+        // resume() relies on stream.js's internal currentStreamUrl
+        stream.resume();
+      } else if (!cached) {
+        // Nothing to play: no station resolved yet AND no prior URL retained.
+        return res.status(503).json({ error: 'no stream available — set a station first' });
+      } else {
+        stream.resume();
+      }
     }
     res.json({ ok: true });
   });
@@ -135,8 +153,10 @@ function createApp(deps = {}) {
     }
     try {
       const next = await alsa.setVolume(pct);
+      state.audioCache = { percent: next.percent, muted: next.muted };
       res.json(next);
     } catch (err) {
+      state.audioCache = { percent: null, muted: null, error: err.message };
       res.status(500).json({ error: err.message });
     }
   });
@@ -147,8 +167,10 @@ function createApp(deps = {}) {
     }
     try {
       const next = await alsa.setMuted(req.body.muted);
+      state.audioCache = { percent: next.percent, muted: next.muted };
       res.json(next);
     } catch (err) {
+      state.audioCache = { percent: null, muted: null, error: err.message };
       res.status(500).json({ error: err.message });
     }
   });
@@ -196,6 +218,12 @@ function createApp(deps = {}) {
     if (typeof slug !== 'string' || !slug.trim()) {
       return res.status(400).json({ error: 'slug is required' });
     }
+    try {
+      evenings.extractSlug(slug);
+    } catch (err) {
+      if (err.name === 'InvalidInput') return res.status(400).json({ error: err.message });
+      throw err;
+    }
     const cfg = config.read();
     if (cfg.presets.some((p) => p.slug === slug)) {
       return res.status(409).json({ error: 'preset already exists' });
@@ -219,6 +247,9 @@ function createApp(deps = {}) {
 
   // --- Service / device controls ---------------------------------------
   app.post('/api/reboot', (_req, res) => {
+    if (state.rebootPending) {
+      return res.status(409).json({ error: 'reboot already pending' });
+    }
     state.rebootPending = true;
     res.status(202).json({ ok: true, message: 'rebooting' });
     setTimeout(() => {
@@ -233,7 +264,7 @@ function createApp(deps = {}) {
     if (!Number.isFinite(lines)) lines = DEFAULT_LOG_LINES;
     lines = Math.max(1, Math.min(MAX_LOG_LINES, Math.floor(lines)));
     execFile('journalctl', ['-u', 'radio-web', '-n', String(lines), '--no-pager'], (err, stdout, stderr) => {
-      if (err) return res.status(500).type('text/plain').send(stderr || err.message);
+      if (err) return res.status(500).json({ error: stderr || err.message });
       res.type('text/plain').send(stdout);
     });
   });
