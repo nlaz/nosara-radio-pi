@@ -1,245 +1,276 @@
 const express = require('express');
-const stream = require('./stream');
-const config = require('./config');
+const path = require('path');
+const fs = require('fs');
+const cp = require('child_process');
 
-const app = express();
-app.use(express.json());
+const POLL_BACKOFF_MS = [10_000, 30_000, 60_000];
+const DEFAULT_LOG_LINES = 200;
+const MAX_LOG_LINES = 1000;
 
-// Start the stream on boot using the saved URL
-stream.start(config.read());
+function createApp(deps = {}) {
+  const config = deps.config || require('./config');
+  const stream = deps.stream || require('./stream');
+  const alsa = deps.alsa || require('./alsa');
+  const evenings = deps.evenings || require('./evenings');
+  const execFile = deps.execFile || cp.execFile;
 
-const STATUS_LABELS = {
-  playing: 'Playing',
-  connecting: 'Connecting / waiting for broadcast',
-  stopped: 'Stopped',
-  error: 'Error / unreachable',
-};
+  // Mutable state owned by this app instance
+  const state = {
+    stationCache: null,    // resolved station data (or media-derived shape)
+    apiReachable: false,
+    lastFetchAt: null,
+    backoffIndex: 0,
+    pollTimer: null,
+    rebootPending: false,
+  };
 
-const STATUS_COLORS = {
-  playing: '#22c55e',
-  connecting: '#eab308',
-  stopped: '#6b7280',
-  error: '#ef4444',
-};
+  async function resolveActive() {
+    const cfg = config.read();
+    return evenings.resolveStation(cfg.active);
+  }
 
-function renderPage(initialStatus) {
-  const label = STATUS_LABELS[initialStatus.status] || initialStatus.status;
-  const color = STATUS_COLORS[initialStatus.status] || '#6b7280';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Radio</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
+  async function refreshStation() {
+    let data;
+    try {
+      data = await resolveActive();
+    } catch (err) {
+      state.apiReachable = false;
+      state.backoffIndex = Math.min(state.backoffIndex + 1, POLL_BACKOFF_MS.length - 1);
+      return { ok: false, error: err };
     }
-    .card {
-      background: #1e293b;
-      border-radius: 12px;
-      padding: 2rem;
-      width: 100%;
-      max-width: 480px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    const prevStreamUrl = state.stationCache?.streamUrl;
+    state.stationCache = data;
+    state.apiReachable = data.apiReachable !== false;
+    state.lastFetchAt = data.fetchedAt || new Date().toISOString();
+    state.backoffIndex = 0;
+    // Auto-start when the stream URL changes — except when the station is
+    // confirmed off-air. The user can still press Play manually, and the
+    // next poll that finds online=true (and a new streamUrl) will start.
+    const shouldAutoStart = data.streamUrl
+      && data.streamUrl !== prevStreamUrl
+      && (data.kind === 'media' || data.online !== false);
+    if (shouldAutoStart) {
+      stream.setStation({ streamUrl: data.streamUrl });
     }
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin-bottom: 1.5rem;
-      letter-spacing: -0.02em;
-    }
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 1.75rem;
-    }
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    #status-label {
-      font-size: 0.95rem;
-      font-weight: 500;
-    }
-    label {
-      display: block;
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #94a3b8;
-      margin-bottom: 0.5rem;
-    }
-    .url-row {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 1.25rem;
-    }
-    input[type="text"] {
-      flex: 1;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      color: #e2e8f0;
-      font-size: 0.875rem;
-      padding: 0.6rem 0.75rem;
-      outline: none;
-    }
-    input[type="text"]:focus { border-color: #60a5fa; }
-    button {
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.875rem;
-      font-weight: 600;
-      padding: 0.6rem 1rem;
-      transition: opacity 0.15s;
-      white-space: nowrap;
-    }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-apply { background: #3b82f6; color: #fff; }
-    .btn-restart { background: #475569; color: #e2e8f0; width: 100%; padding: 0.75rem; font-size: 0.95rem; }
-    .btn-apply:hover:not(:disabled) { background: #2563eb; }
-    .btn-restart:hover:not(:disabled) { background: #64748b; }
-  </style>
-</head>
-<body>
-<div class="card">
-  <h1>Radio</h1>
+    return { ok: true, data };
+  }
 
-  <div class="status-row">
-    <div class="dot" id="status-dot" style="background:${color}"></div>
-    <span id="status-label" aria-live="polite" aria-atomic="true">${label}</span>
-  </div>
+  function schedulePoll() {
+    if (state.pollTimer) clearTimeout(state.pollTimer);
+    const wait = POLL_BACKOFF_MS[state.backoffIndex];
+    state.pollTimer = setTimeout(async () => {
+      await refreshStation();
+      schedulePoll();
+    }, wait);
+    state.pollTimer.unref?.();
+  }
 
-  <label for="url-input">Stream URL</label>
-  <div class="url-row">
-    <input type="text" id="url-input" value="${escapeHtml(initialStatus.url)}" autocomplete="off" spellcheck="false">
-    <button class="btn-apply" id="btn-apply" onclick="applyUrl()">Apply</button>
-  </div>
+  function stopPoll() {
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+  }
 
-  <button class="btn-restart" id="btn-restart" onclick="restartStream()">Restart</button>
-</div>
+  const app = express();
+  app.use(express.json());
 
-<script>
-  const STATUS_LABELS = ${JSON.stringify(STATUS_LABELS)};
-  const STATUS_COLORS = ${JSON.stringify(STATUS_COLORS)};
-
-  let urlInputDirty = false;
-  const urlInput = document.getElementById('url-input');
-  urlInput.addEventListener('input', () => { urlInputDirty = true; });
-  urlInput.addEventListener('blur', () => {
-    // Only clear dirty flag if user didn't change anything from last known value
+  // --- Status (the aggregator the UI polls) -----------------------------
+  app.get('/api/status', async (_req, res) => {
+    let audio = { percent: null, muted: null, error: null };
+    try {
+      const v = await alsa.getVolume();
+      audio = { percent: v.percent, muted: v.muted, error: null };
+    } catch (err) {
+      audio = { percent: null, muted: null, error: err.message };
+    }
+    const cfg = config.read();
+    const bridge = stream.getStatus();
+    res.json({
+      bridge: { status: bridge.status, streamUrl: bridge.streamUrl },
+      station: state.stationCache
+        ? {
+            ...state.stationCache,
+            fetchedAt: state.lastFetchAt,
+            apiReachable: state.apiReachable,
+          }
+        : { slug: cfg.active, kind: null, streamUrl: null, name: null, image: null, host: null, online: null, listeners: null, fetchedAt: null, apiReachable: state.apiReachable },
+      audio,
+      active: cfg.active,
+      presets: cfg.presets,
+    });
   });
 
-  function setStatus(status, url) {
-    const dot = document.getElementById('status-dot');
-    const label = document.getElementById('status-label');
-    dot.style.background = STATUS_COLORS[status] || '#6b7280';
-    label.textContent = STATUS_LABELS[status] || status;
-
-    // Only update URL input if user isn't actively editing it
-    if (!urlInputDirty) {
-      urlInput.value = url;
+  // --- Playback lifecycle ----------------------------------------------
+  app.post('/api/play', (_req, res) => {
+    const { status } = stream.getStatus();
+    if (status === 'paused' || status === 'stopped' || status === 'error') {
+      const cached = state.stationCache?.streamUrl;
+      if (cached && status !== 'paused') stream.setStation({ streamUrl: cached });
+      else stream.resume();
     }
-  }
+    res.json({ ok: true });
+  });
 
-  function setButtonsDisabled(disabled) {
-    document.getElementById('btn-apply').disabled = disabled;
-    document.getElementById('btn-restart').disabled = disabled;
-  }
+  app.post('/api/pause', (_req, res) => {
+    stream.pause();
+    res.json({ ok: true });
+  });
 
-  async function restartStream() {
-    const btn = document.getElementById('btn-restart');
-    btn.textContent = 'Restarting…';
-    setButtonsDisabled(true);
-    try {
-      await fetch('/api/restart', { method: 'POST' });
-    } finally {
-      btn.textContent = 'Restart';
-      setButtonsDisabled(false);
+  app.post('/api/stop', (_req, res) => {
+    stream.stop();
+    res.json({ ok: true });
+  });
+
+  app.post('/api/restart', (_req, res) => {
+    stream.restart();
+    res.json({ ok: true });
+  });
+
+  // --- Audio (ALSA) -----------------------------------------------------
+  app.put('/api/volume', async (req, res) => {
+    const pct = Number(req.body?.percent);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      return res.status(400).json({ error: 'percent must be a number 0-100' });
     }
-  }
-
-  async function applyUrl() {
-    const url = urlInput.value.trim();
-    if (!url) return;
-    const btn = document.getElementById('btn-apply');
-    btn.textContent = 'Applying…';
-    setButtonsDisabled(true);
     try {
-      const res = await fetch('/api/url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      if (res.ok) {
-        urlInputDirty = false;
+      const next = await alsa.setVolume(pct);
+      res.json(next);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/mute', async (req, res) => {
+    if (typeof req.body?.muted !== 'boolean') {
+      return res.status(400).json({ error: 'muted must be boolean' });
+    }
+    try {
+      const next = await alsa.setMuted(req.body.muted);
+      res.json(next);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Station + presets ------------------------------------------------
+  app.put('/api/station', async (req, res) => {
+    const input = req.body?.input;
+    if (typeof input !== 'string' || !input.trim()) {
+      return res.status(400).json({ error: 'input is required' });
+    }
+    let classification;
+    try {
+      classification = evenings.extractSlug(input);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    try {
+      const data = await evenings.resolveStation(classification);
+      const cfg = config.read();
+      cfg.active = classification.slug;
+      config.write(cfg);
+      const prev = state.stationCache?.streamUrl;
+      state.stationCache = data;
+      state.apiReachable = data.apiReachable !== false;
+      state.lastFetchAt = data.fetchedAt || new Date().toISOString();
+      state.backoffIndex = 0;
+      if (data.streamUrl && data.streamUrl !== prev) {
+        stream.setStation({ streamUrl: data.streamUrl });
       }
-    } finally {
-      btn.textContent = 'Apply';
-      setButtonsDisabled(false);
+      res.json({ ok: true, station: data });
+    } catch (err) {
+      if (err.name === 'StationNotFoundError') {
+        return res.status(404).json({ error: err.message });
+      }
+      res.status(502).json({ error: err.message });
     }
-  }
+  });
 
-  // Immediate fetch on load to get fresh status, then poll every 3s
-  function poll() {
-    fetch('/api/status')
-      .then(r => r.json())
-      .then(data => setStatus(data.status, data.url))
-      .catch(() => {});
-  }
-  poll();
-  setInterval(poll, 3000);
-</script>
-</body>
-</html>`;
+  app.get('/api/presets', (_req, res) => {
+    res.json(config.read().presets);
+  });
+
+  app.post('/api/presets', (req, res) => {
+    const { slug, label } = req.body || {};
+    if (typeof slug !== 'string' || !slug.trim()) {
+      return res.status(400).json({ error: 'slug is required' });
+    }
+    const cfg = config.read();
+    if (cfg.presets.some((p) => p.slug === slug)) {
+      return res.status(409).json({ error: 'preset already exists' });
+    }
+    cfg.presets.push({ slug, label: typeof label === 'string' && label.trim() ? label : slug });
+    config.write(cfg);
+    res.status(201).json(cfg.presets);
+  });
+
+  app.delete('/api/presets/:slug', (req, res) => {
+    const { slug } = req.params;
+    const cfg = config.read();
+    const next = cfg.presets.filter((p) => p.slug !== slug);
+    if (next.length === cfg.presets.length) {
+      return res.status(404).json({ error: 'preset not found' });
+    }
+    cfg.presets = next;
+    config.write(cfg);
+    res.json(cfg.presets);
+  });
+
+  // --- Service / device controls ---------------------------------------
+  app.post('/api/reboot', (_req, res) => {
+    state.rebootPending = true;
+    res.status(202).json({ ok: true, message: 'rebooting' });
+    setTimeout(() => {
+      execFile('sudo', ['/sbin/reboot'], (err) => {
+        if (err) console.error('reboot failed:', err.message);
+      });
+    }, 500);
+  });
+
+  app.get('/api/logs', (req, res) => {
+    let lines = Number(req.query.lines);
+    if (!Number.isFinite(lines)) lines = DEFAULT_LOG_LINES;
+    lines = Math.max(1, Math.min(MAX_LOG_LINES, Math.floor(lines)));
+    execFile('journalctl', ['-u', 'radio-web', '-n', String(lines), '--no-pager'], (err, stdout, stderr) => {
+      if (err) return res.status(500).type('text/plain').send(stderr || err.message);
+      res.type('text/plain').send(stdout);
+    });
+  });
+
+  // --- Static assets + SPA fallback ------------------------------------
+  const distDir = path.join(__dirname, 'dist');
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    const idx = path.join(distDir, 'index.html');
+    if (!fs.existsSync(idx)) {
+      return res.status(503).type('html').send(
+        `<!doctype html><html><head><meta charset="utf-8"><title>radio.local</title>`
+        + `<style>body{font-family:system-ui;padding:2rem;max-width:42rem;margin:auto}code{background:#eee;padding:.1em .3em;border-radius:.2em}</style>`
+        + `</head><body><h1>Frontend not built</h1>`
+        + `<p>Run <code>npm install &amp;&amp; npm run build</code> on the Pi, then restart the service.</p>`
+        + `</body></html>`,
+      );
+    }
+    res.sendFile(idx);
+  });
+
+  return { app, state, refreshStation, schedulePoll, stopPoll };
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+async function boot() {
+  const { app, refreshStation, schedulePoll } = createApp();
+  await refreshStation();
+  schedulePoll();
+  const PORT = Number(process.env.PORT) || 80;
+  app.listen(PORT, () => console.log(`Radio controller listening on port ${PORT}`));
 }
 
-app.get('/', (_req, res) => {
-  res.send(renderPage(stream.getStatus()));
-});
+if (require.main === module) {
+  boot().catch((err) => {
+    console.error('boot failed:', err);
+    process.exit(1);
+  });
+}
 
-app.get('/api/status', (_req, res) => {
-  res.json(stream.getStatus());
-});
-
-app.post('/api/restart', (_req, res) => {
-  stream.restart();
-  res.json({ ok: true });
-});
-
-app.post('/api/url', (req, res) => {
-  const { url } = req.body;
-  if (!url || typeof url !== 'string' || !url.trim()) {
-    return res.status(400).json({ error: 'url is required' });
-  }
-  stream.setUrl(url.trim());
-  res.json({ ok: true });
-});
-
-const PORT = process.env.PORT || 80;
-app.listen(PORT, () => {
-  console.log(`Radio controller listening on port ${PORT}`);
-});
+module.exports = { createApp };
