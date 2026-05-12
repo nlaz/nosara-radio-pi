@@ -102,6 +102,33 @@ function createApp(deps = {}) {
   const app = express();
   app.use(express.json());
 
+  // --- Auth gate (tunneled requests only) ------------------------------
+  // LAN traffic bypasses this entirely. Tunneled requests must carry a valid
+  // signed session cookie or be on the login surface. Detection uses the
+  // Cf-Connecting-Ip header which Cloudflare injects on every tunneled
+  // request and which LAN traffic never carries.
+  app.use((req, res, next) => {
+    if (!auth.isTunneled(req)) return next();
+    const p = req.path;
+    if (p === '/login' || p === '/logout' || p === '/skull.svg') return next();
+
+    const pin = getPin();
+    const secret = getSessionSecret();
+    if (!pin || !secret) {
+      return res.status(503).json({ error: 'auth not configured' });
+    }
+
+    const cookies = auth.parseCookies(req.headers.cookie || '');
+    const token = cookies[auth.COOKIE_NAME];
+    if (token && auth.verifySession(token, secret, pin, now())) return next();
+
+    if ((req.get('Accept') || '').includes('text/html')) {
+      const ret = encodeURIComponent(req.originalUrl || '/');
+      return res.redirect(303, `/login?return=${ret}`);
+    }
+    return res.status(401).json({ error: 'auth required' });
+  });
+
   // --- Status (the aggregator the UI polls) -----------------------------
   app.get('/api/status', (_req, res) => {
     // Serve audio from cache. setVolume/setMuted update the cache on success;

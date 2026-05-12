@@ -544,3 +544,109 @@ test('U2.L10: POST /logout clears the cookie and redirects to /login', async () 
     assert.match(cookie, /Max-Age=0/);
   });
 });
+
+// ── U3: tunnel auth middleware ──────────────────────────────────────────────
+
+const TUNNEL_HDR = { 'Cf-Connecting-Ip': '3.3.3.3' };
+
+function validSessionCookie(pin = 'puravida', secret = 'a'.repeat(32), at = Date.now()) {
+  const token = auth.signSession({
+    iat: at,
+    exp: at + auth.SESSION_MAX_AGE_MS,
+    pin_fingerprint: auth.pinFingerprint(secret, pin),
+  }, secret);
+  return `${auth.COOKIE_NAME}=${token}`;
+}
+
+test('U3.M1: LAN request without Cf-Connecting-Ip bypasses the gate', async () => {
+  await withApp(authMocks(), async ({ srv, refreshStation }) => {
+    await refreshStation();
+    const { status, json } = await request(srv, 'GET', '/api/status');
+    assert.equal(status, 200);
+    assert.equal(json.station.name, 'Demo Station');
+  });
+});
+
+test('U3.M2: tunneled HTML request with no cookie redirects to /login with return path', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status, headers } = await request(srv, 'GET', '/presets', null,
+      { ...TUNNEL_HDR, Accept: 'text/html' });
+    assert.equal(status, 303);
+    assert.match(headers.location || '', /^\/login\?return=/);
+    assert.match(headers.location || '', /%2Fpresets/);
+  });
+});
+
+test('U3.M3: tunneled JSON request with no cookie returns 401 JSON', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status, json } = await request(srv, 'GET', '/api/status', null,
+      { ...TUNNEL_HDR, Accept: 'application/json' });
+    assert.equal(status, 401);
+    assert.equal(json.error, 'auth required');
+  });
+});
+
+test('U3.M4: tunneled request with a valid session cookie reaches the protected route', async () => {
+  await withApp(authMocks(), async ({ srv, refreshStation }) => {
+    await refreshStation();
+    const { status, json } = await request(srv, 'GET', '/api/status', null,
+      { ...TUNNEL_HDR, Cookie: validSessionCookie() });
+    assert.equal(status, 200);
+    assert.equal(json.station.name, 'Demo Station');
+  });
+});
+
+test('U3.M5: tunneled request with a cookie signed by a different PIN is rejected', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const stale = validSessionCookie('oldpin');
+    const { status, json } = await request(srv, 'GET', '/api/status', null,
+      { ...TUNNEL_HDR, Cookie: stale, Accept: 'application/json' });
+    assert.equal(status, 401);
+    assert.equal(json.error, 'auth required');
+  });
+});
+
+test('U3.M6: /login and /logout are reachable through the tunnel without a cookie', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const g = await request(srv, 'GET', '/login', null, TUNNEL_HDR);
+    assert.equal(g.status, 200);
+    const p = await requestForm(srv, '/login', { pin: 'puravida', return: '/' }, TUNNEL_HDR);
+    assert.equal(p.status, 303);
+  });
+});
+
+test('U3.M7: tunneled request returns 503 when RADIO_PIN is unset', async () => {
+  await withApp(authMocks({ getPin: () => undefined }), async ({ srv }) => {
+    const { status, json } = await request(srv, 'GET', '/api/status', null,
+      { ...TUNNEL_HDR, Accept: 'application/json' });
+    assert.equal(status, 503);
+    assert.equal(json.error, 'auth not configured');
+  });
+});
+
+test('U3.M8: tunneled request returns 503 when RADIO_SESSION_SECRET is unset', async () => {
+  await withApp(authMocks({ getSessionSecret: () => undefined }), async ({ srv }) => {
+    const { status } = await request(srv, 'GET', '/api/status', null,
+      { ...TUNNEL_HDR, Accept: 'application/json' });
+    assert.equal(status, 503);
+  });
+});
+
+test('U3.M9: POST /api/reboot over tunnel requires auth (401 without cookie)', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status } = await request(srv, 'POST', '/api/reboot', null,
+      { ...TUNNEL_HDR, Accept: 'application/json' });
+    assert.equal(status, 401);
+  });
+});
+
+test('U3.M10: /skull.svg is bypassed even through the tunnel (for the login page)', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    // dist/skull.svg may not exist in the test repo, but the gate should pass-through,
+    // letting express.static handle it (and return 404 if file is missing).
+    const { status } = await request(srv, 'GET', '/skull.svg', null, TUNNEL_HDR);
+    assert.notEqual(status, 401);
+    assert.notEqual(status, 303);
+    assert.notEqual(status, 503);
+  });
+});
