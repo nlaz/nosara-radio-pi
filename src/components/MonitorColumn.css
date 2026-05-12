@@ -1,0 +1,18 @@
+.monitor-column {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.monitor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.stream-source {
+  font-size: 0.74rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}

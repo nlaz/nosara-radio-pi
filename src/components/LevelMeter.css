@@ -1,0 +1,53 @@
+.level-meter {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.85rem 0.95rem;
+  background: var(--cream-deep);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(7, 45, 68, 0.08);
+}
+
+.level-meter-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.level-meter-channels {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+.level-meter-canvas {
+  width: 100%;
+  height: 56px;
+  display: block;
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.level-meter-note,
+.level-meter-error {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.level-meter-error {
+  color: var(--error);
+}
+
+.level-meter-start {
+  align-self: flex-start;
+  background: var(--navy);
+  color: var(--cream-bright);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--radius-pill);
+}
+
+.level-meter-start:hover {
+  background: var(--navy-soft);
+}
