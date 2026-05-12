@@ -8,6 +8,16 @@ export interface MonitorColumnProps {
   status: AppStatus | null;
 }
 
+function streamTail(raw: string): string {
+  // Show the last 12 chars of the URL's pathname, but never crash the panel
+  // on a malformed URL — fall back to the raw string's tail.
+  try {
+    return new URL(raw).pathname.slice(-12);
+  } catch {
+    return raw.slice(-12);
+  }
+}
+
 export function MonitorColumn({ status }: MonitorColumnProps) {
   const station = status?.station ?? null;
   const bridgeStatus = status?.bridge.status ?? null;
@@ -22,7 +32,7 @@ export function MonitorColumn({ status }: MonitorColumnProps) {
         <StatusIndicator status={bridgeStatus} />
         {status?.bridge.streamUrl && (
           <span className="stream-source mono" title={status.bridge.streamUrl}>
-            {new URL(status.bridge.streamUrl).pathname.slice(-12)}
+            {streamTail(status.bridge.streamUrl)}
           </span>
         )}
       </div>

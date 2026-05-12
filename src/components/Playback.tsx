@@ -5,10 +5,10 @@ import './Playback.css';
 
 export interface PlaybackProps {
   status: AppStatus | null;
-  onAction: () => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
 }
 
-export function Playback({ status, onAction }: PlaybackProps) {
+export function Playback({ status, onRefresh }: PlaybackProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const bridgeStatus = status?.bridge.status ?? null;
   const audio = status?.audio ?? { percent: null, muted: null, error: null };
@@ -16,12 +16,14 @@ export function Playback({ status, onAction }: PlaybackProps) {
   const isPlaying = bridgeStatus === 'playing' || bridgeStatus === 'connecting';
 
   // Local slider state allows dragging without firing requests every tick;
-  // we commit on pointer release. Sync with server when not actively dragging.
+  // we commit on pointer release. Sync with server when not actively dragging
+  // and not mid-commit — otherwise an in-flight setVolume could be clobbered
+  // by a stale poll result.
   const [draft, setDraft] = useState<number>(audio.percent ?? 80);
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
-    if (!dragging && audio.percent !== null) setDraft(audio.percent);
-  }, [audio.percent, dragging]);
+    if (!dragging && busy !== 'volume' && audio.percent !== null) setDraft(audio.percent);
+  }, [audio.percent, dragging, busy]);
 
   async function togglePlayPause() {
     setBusy('play');
@@ -30,21 +32,21 @@ export function Playback({ status, onAction }: PlaybackProps) {
       else await api.play();
     } finally {
       setBusy(null);
-      void onAction();
+      void onRefresh();
     }
   }
 
   async function commitVolume(value: number) {
     setBusy('volume');
     try { await api.setVolume(value); }
-    finally { setBusy(null); void onAction(); }
+    finally { setBusy(null); void onRefresh(); }
   }
 
   async function toggleMute() {
     if (audio.muted === null) return;
     setBusy('mute');
     try { await api.setMuted(!audio.muted); }
-    finally { setBusy(null); void onAction(); }
+    finally { setBusy(null); void onRefresh(); }
   }
 
   return (
@@ -79,7 +81,8 @@ export function Playback({ status, onAction }: PlaybackProps) {
           onChange={(e) => { setDragging(true); setDraft(Number(e.target.value)); }}
           onMouseUp={() => { if (dragging) { void commitVolume(draft); setDragging(false); } }}
           onTouchEnd={() => { if (dragging) { void commitVolume(draft); setDragging(false); } }}
-          onKeyUp={() => { void commitVolume(draft); }}
+          onKeyDown={() => { setDragging(true); }}
+          onKeyUp={() => { if (dragging) { void commitVolume(draft); setDragging(false); } }}
           className="volume-slider"
           aria-label="Speaker volume"
         />

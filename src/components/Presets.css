@@ -92,3 +92,8 @@
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+.presets-error {
+  font-size: 0.78rem;
+  color: var(--error);
+}

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { AppStatus } from '../types';
-import { api } from '../api';
+import { api, isApiError, toMessage } from '../api';
 import './StreamRow.css';
 
 export interface StreamRowProps {
   status: AppStatus | null;
-  onAction: () => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
 }
 
-export function StreamRow({ status, onAction }: StreamRowProps) {
+export function StreamRow({ status, onRefresh }: StreamRowProps) {
   const active = status?.active ?? '';
   const [input, setInput] = useState(active);
   const [busy, setBusy] = useState(false);
@@ -26,13 +26,14 @@ export function StreamRow({ status, onAction }: StreamRowProps) {
     setError(null);
     try {
       await api.setStation(value);
+      // Wait for the refresh to land so the input doesn't transiently
+      // re-sync to a stale `active` from a poll that's still in flight.
+      await onRefresh();
       setDirty(false);
-      void onAction();
     } catch (err) {
-      const e = err as { status?: number; message: string };
-      if (e.status === 404) setError('Station not found');
-      else if (e.status === 400) setError(`Invalid input: ${e.message}`);
-      else setError(e.message);
+      if (isApiError(err) && err.status === 404) setError('Station not found');
+      else if (isApiError(err) && err.status === 400) setError(`Invalid input: ${toMessage(err)}`);
+      else setError(toMessage(err));
     } finally {
       setBusy(false);
     }

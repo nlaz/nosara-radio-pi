@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, toMessage } from '../api';
 import type { AppStatus } from '../types';
 
 const POLL_MS = 1000;
@@ -14,20 +14,39 @@ export function useStatus(): UseStatusResult {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const visibleRef = useRef<boolean>(typeof document === 'undefined' ? true : document.visibilityState === 'visible');
+  const cancelledRef = useRef(false);
 
-  const fetchOnce = async () => {
+  // refresh() exposed to callers: stable identity, respects unmount.
+  const refresh = useCallback(async () => {
     try {
       const s = await api.getStatus();
+      if (cancelledRef.current) return;
       setStatus(s);
       setError(null);
     } catch (err) {
-      setError((err as Error).message);
+      if (cancelledRef.current) return;
+      setError(toMessage(err));
     }
-  };
+  }, []);
 
   useEffect(() => {
+    cancelledRef.current = false;
     let cancelled = false;
     let timer: number | null = null;
+
+    // Inner closure that closes over `cancelled` so the loop can't be
+    // tricked into setting state on an unmounted hook.
+    const fetchOnce = async () => {
+      try {
+        const s = await api.getStatus();
+        if (cancelled) return;
+        setStatus(s);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(toMessage(err));
+      }
+    };
 
     const tick = async () => {
       if (cancelled) return;
@@ -38,18 +57,19 @@ export function useStatus(): UseStatusResult {
 
     const onVisibility = () => {
       visibleRef.current = document.visibilityState === 'visible';
-      if (visibleRef.current) fetchOnce();
+      if (visibleRef.current && !cancelled) void fetchOnce();
     };
 
     document.addEventListener('visibilitychange', onVisibility);
-    tick();
+    void tick();
 
     return () => {
       cancelled = true;
+      cancelledRef.current = true;
       if (timer !== null) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
-  return { status, error, refresh: fetchOnce };
+  return { status, error, refresh };
 }

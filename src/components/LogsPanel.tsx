@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, toMessage } from '../api';
 import './LogsPanel.css';
 
 export interface LogsPanelProps {
@@ -16,7 +16,7 @@ export function LogsPanel({ onClose }: LogsPanelProps) {
       const t = await api.getLogs(200);
       setText(t);
     } catch (err) {
-      setText(`Error fetching logs: ${(err as Error).message}`);
+      setText(`Error fetching logs: ${toMessage(err)}`);
     } finally {
       setBusy(false);
     }

@@ -33,3 +33,8 @@
   background: var(--error);
   color: var(--cream-bright);
 }
+
+.service-error {
+  font-size: 0.78rem;
+  color: var(--error);
+}

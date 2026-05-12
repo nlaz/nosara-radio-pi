@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { toMessage } from '../api';
 
 interface ChannelLevel {
   peak: number;       // 0..1
@@ -85,7 +86,7 @@ export function useLevelMeter(
       audio.preload = 'auto';
       audio.src = streamUrl;
       void audio.play().catch((err: unknown) => {
-        setError(`Audio fetch blocked: ${(err as Error).message}`);
+        setError(`Audio fetch blocked: ${toMessage(err)}`);
       });
 
       const audioCtx = new Ctor();
@@ -113,7 +114,7 @@ export function useLevelMeter(
       setError(null);
       loop();
     } catch (err) {
-      setError((err as Error).message);
+      setError(toMessage(err));
     }
   };
 

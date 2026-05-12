@@ -1,10 +1,21 @@
 import type { AppStatus, AudioState, Preset, StationData } from './types';
 
-async function request<T = unknown>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
+export interface ApiError extends Error {
+  status: number;
+}
+
+export function isApiError(err: unknown): err is ApiError {
+  return err instanceof Error
+    && typeof (err as { status?: unknown }).status === 'number';
+}
+
+export function toMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  return String(err);
+}
+
+async function buildRequest(method: string, path: string, body?: unknown): Promise<Response> {
   const init: RequestInit = {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
@@ -19,30 +30,40 @@ async function request<T = unknown>(
     } catch {
       /* non-JSON response */
     }
-    throw Object.assign(new Error(message), { status: res.status });
+    const err = new Error(message) as ApiError;
+    err.status = res.status;
+    throw err;
   }
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) return (await res.json()) as T;
-  return (await res.text()) as unknown as T;
+  return res;
+}
+
+async function requestJson<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await buildRequest(method, path, body);
+  return (await res.json()) as T;
+}
+
+async function requestText(method: string, path: string): Promise<string> {
+  const res = await buildRequest(method, path);
+  return res.text();
 }
 
 export const api = {
-  getStatus: () => request<AppStatus>('GET', '/api/status'),
-  play: () => request<{ ok: true }>('POST', '/api/play'),
-  pause: () => request<{ ok: true }>('POST', '/api/pause'),
-  stop: () => request<{ ok: true }>('POST', '/api/stop'),
-  restart: () => request<{ ok: true }>('POST', '/api/restart'),
-  reboot: () => request<{ ok: true; message: string }>('POST', '/api/reboot'),
+  getStatus: () => requestJson<AppStatus>('GET', '/api/status'),
+  play: () => requestJson<{ ok: true }>('POST', '/api/play'),
+  pause: () => requestJson<{ ok: true }>('POST', '/api/pause'),
+  stop: () => requestJson<{ ok: true }>('POST', '/api/stop'),
+  restart: () => requestJson<{ ok: true }>('POST', '/api/restart'),
+  reboot: () => requestJson<{ ok: true; message: string }>('POST', '/api/reboot'),
   setVolume: (percent: number) =>
-    request<AudioState>('PUT', '/api/volume', { percent }),
+    requestJson<AudioState>('PUT', '/api/volume', { percent }),
   setMuted: (muted: boolean) =>
-    request<AudioState>('PUT', '/api/mute', { muted }),
+    requestJson<AudioState>('PUT', '/api/mute', { muted }),
   setStation: (input: string) =>
-    request<{ ok: true; station: StationData }>('PUT', '/api/station', { input }),
-  listPresets: () => request<Preset[]>('GET', '/api/presets'),
+    requestJson<{ ok: true; station: StationData }>('PUT', '/api/station', { input }),
+  listPresets: () => requestJson<Preset[]>('GET', '/api/presets'),
   addPreset: (slug: string, label: string) =>
-    request<Preset[]>('POST', '/api/presets', { slug, label }),
+    requestJson<Preset[]>('POST', '/api/presets', { slug, label }),
   deletePreset: (slug: string) =>
-    request<Preset[]>('DELETE', `/api/presets/${encodeURIComponent(slug)}`),
-  getLogs: (lines = 200) => request<string>('GET', `/api/logs?lines=${lines}`),
+    requestJson<Preset[]>('DELETE', `/api/presets/${encodeURIComponent(slug)}`),
+  getLogs: (lines = 200) => requestText('GET', `/api/logs?lines=${lines}`),
 };

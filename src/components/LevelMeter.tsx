@@ -14,6 +14,8 @@ export function LevelMeter({ streamUrl, active }: LevelMeterProps) {
   const { error, supported, start } = useLevelMeter(canvasRef, streamUrl, active && started);
 
   useEffect(() => {
+    // Once started, no need to re-listen on every status poll re-render.
+    if (started) return;
     // First user gesture anywhere on the page unlocks the AudioContext.
     const onGesture = () => {
       setStarted(true);
@@ -26,7 +28,7 @@ export function LevelMeter({ streamUrl, active }: LevelMeterProps) {
       window.removeEventListener('pointerdown', onGesture);
       window.removeEventListener('keydown', onGesture);
     };
-  }, []);
+  }, [started]);
 
   return (
     <div className="level-meter">

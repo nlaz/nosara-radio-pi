@@ -1,35 +1,38 @@
 import { useState } from 'react';
 import type { AppStatus } from '../types';
-import { api } from '../api';
+import { api, toMessage } from '../api';
 import { useConfirmTap } from '../hooks/useConfirmTap';
 import './Presets.css';
 
 export interface PresetsProps {
   status: AppStatus | null;
-  onAction: () => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
 }
 
-export function Presets({ status, onAction }: PresetsProps) {
+export function Presets({ status, onRefresh }: PresetsProps) {
   const presets = status?.presets ?? [];
   const active = status?.active ?? null;
   const [adding, setAdding] = useState(false);
   const [newSlug, setNewSlug] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   async function activatePreset(slug: string) {
-    try { await api.setStation(slug); void onAction(); }
-    catch { /* error surface handled in StreamRow on subsequent edit */ }
+    setError(null);
+    try { await api.setStation(slug); void onRefresh(); }
+    catch (err) { setError(toMessage(err)); }
   }
 
   async function addPreset() {
     if (!newSlug.trim()) return;
+    setError(null);
     try {
       await api.addPreset(newSlug.trim(), newLabel.trim() || newSlug.trim());
       setNewSlug('');
       setNewLabel('');
       setAdding(false);
-      void onAction();
-    } catch { /* show inline error in a future iteration */ }
+      void onRefresh();
+    } catch (err) { setError(toMessage(err)); }
   }
 
   return (
@@ -53,7 +56,8 @@ export function Presets({ status, onAction }: PresetsProps) {
             slug={p.slug}
             isActive={p.slug === active}
             onActivate={() => activatePreset(p.slug)}
-            onAction={onAction}
+            onRefresh={onRefresh}
+            onError={setError}
           />
         ))}
       </div>
@@ -74,6 +78,7 @@ export function Presets({ status, onAction }: PresetsProps) {
           <button type="button" className="btn-apply" onClick={addPreset}>Add</button>
         </div>
       )}
+      {error && <div className="presets-error mono">{error}</div>}
     </div>
   );
 }
@@ -83,13 +88,14 @@ interface PresetChipProps {
   slug: string;
   isActive: boolean;
   onActivate: () => void;
-  onAction: () => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
+  onError: (msg: string) => void;
 }
 
-function PresetChip({ label, slug, isActive, onActivate, onAction }: PresetChipProps) {
+function PresetChip({ label, slug, isActive, onActivate, onRefresh, onError }: PresetChipProps) {
   const { pending, fire } = useConfirmTap(async () => {
-    try { await api.deletePreset(slug); void onAction(); }
-    catch { /* ignore */ }
+    try { await api.deletePreset(slug); void onRefresh(); }
+    catch (err) { onError(toMessage(err)); }
   });
 
   return (
