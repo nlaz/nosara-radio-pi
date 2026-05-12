@@ -152,6 +152,127 @@ Open `http://radio.local` from any device on the local network. You should see:
 - A monitor column on the left with the active station's artwork, an on-air pill, the live audio level meter, and a connection-status badge
 - A control column on the right with play/pause, volume, mute, station URL/slug input, presets, and service controls
 
+## 10. Remote access (optional)
+
+By default the controller is reachable only on the home LAN at `http://radio.local`. To reach it from another network — a phone on cellular, a laptop on a different Wi-Fi — set up two things: a shared PIN that gates remote access, and a Cloudflare Tunnel that exposes the Pi at `https://radio.<your-domain>` without port forwarding. LAN access at `radio.local` keeps working with no PIN.
+
+### 10a. Set the PIN and session secret
+
+The service reads two secrets from `/etc/radio-web.env`:
+
+- `RADIO_PIN` — the shared passcode anyone reaching the public URL must enter
+- `RADIO_SESSION_SECRET` — a long random string used to sign session cookies (separate from the PIN so a leaked cookie cannot be brute-forced back to your PIN)
+
+Create the file with restrictive permissions:
+
+```bash
+sudo install -m 0600 -o root -g root /dev/null /etc/radio-web.env
+sudo nano /etc/radio-web.env
+```
+
+Add exactly these two lines (no inline comments, no leading whitespace, no DOS line endings):
+
+```
+RADIO_PIN=puravida
+RADIO_SESSION_SECRET=replace-with-32-random-bytes
+```
+
+Generate a strong session secret with:
+
+```bash
+openssl rand -hex 32
+```
+
+Restart the service so the new env file is picked up:
+
+```bash
+sudo systemctl restart radio-web
+```
+
+**Ordering note:** if you start the service before creating `/etc/radio-web.env`, LAN access works but every tunneled request returns 503 `auth not configured` until you create the file *and* restart. `systemctl reload` does NOT re-read env files — it must be `restart`.
+
+**To rotate the PIN later** (suspected leak, periodic refresh):
+
+```bash
+sudo nano /etc/radio-web.env       # edit RADIO_PIN
+sudo systemctl restart radio-web   # restart — reload won't pick up env changes
+```
+
+The restart invalidates every active remote session: any device that was logged in must re-enter the new PIN.
+
+### 10b. Set up Cloudflare Tunnel
+
+The tunnel runs as its own systemd service alongside `radio-web` and connects outbound to Cloudflare's edge — no port forwarding, no exposed home IP, free tier sufficient. If the tunnel goes down, LAN access keeps working.
+
+Prerequisites: a domain you own whose DNS is managed by Cloudflare (or can be moved there).
+
+```bash
+# Install cloudflared (ARM64 .deb for Raspberry Pi 4/5)
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+sudo dpkg -i cloudflared.deb
+
+# Authenticate (opens a browser for the Cloudflare account login)
+cloudflared tunnel login
+
+# Create the tunnel (writes credentials to ~/.cloudflared/<tunnel-id>.json)
+cloudflared tunnel create radio
+
+# Route the public hostname at Cloudflare's DNS
+cloudflared tunnel route dns radio radio.<your-domain>
+```
+
+Create `/etc/cloudflared/config.yml` (replace `<tunnel-id>` and `<your-domain>`):
+
+```yaml
+tunnel: <tunnel-id>
+credentials-file: /etc/cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: radio.<your-domain>
+    service: http://localhost:80
+  - service: http_status:404
+```
+
+The trailing `http_status:404` catch-all ingress rule is **required** — cloudflared refuses to start without it.
+
+Move the credentials file under root ownership and install the service:
+
+```bash
+sudo mkdir -p /etc/cloudflared
+sudo cp ~/.cloudflared/<tunnel-id>.json /etc/cloudflared/
+sudo chown -R root:root /etc/cloudflared
+sudo cloudflared service install
+```
+
+Verify:
+
+```bash
+systemctl is-active cloudflared                                          # → active
+curl -sS -o /dev/null -w '%{http_code}\n' https://radio.<your-domain>/login   # → 200
+```
+
+A successful login from a phone on cellular should:
+
+1. Open `https://radio.<your-domain>` in any browser
+2. Land on the PIN entry page
+3. After entering the correct PIN, redirect to the main controller UI
+4. Future visits skip the PIN entry for 7 days (until you rotate the PIN or clear cookies)
+
+### 10c. LAN trust assumption (read before sharing your Wi-Fi password)
+
+The PIN gate only applies to traffic arriving through the tunnel. Any device on your home Wi-Fi can still reach `http://radio.local` without a PIN — including houseguests you gave the Wi-Fi password to, family members, and smart-home devices. This matches the existing LAN behavior; the remote-access feature does not lock it down.
+
+If your network composition changes (regular houseguests, multi-tenant Wi-Fi, untrusted IoT devices), one option is to firewall port 80 to loopback + your home subnet so the unauthenticated LAN path is closed at the network layer:
+
+```bash
+# Adjust 192.168.1.0/24 to match your LAN subnet
+sudo ufw allow from 127.0.0.1 to any port 80
+sudo ufw allow from 192.168.1.0/24 to any port 80
+sudo ufw deny 80
+sudo ufw enable
+```
+
+The cloudflared tunnel connects from `127.0.0.1` so it stays allowed; remote internet traffic that tries to reach port 80 directly is blocked, and the only public path becomes the auth-gated tunnel.
+
 ## Existing installs: config migration
 
 If you previously ran this app, your `config.json` looks like:

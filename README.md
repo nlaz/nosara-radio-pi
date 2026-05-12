@@ -64,6 +64,16 @@ For dev against a real Pi running the server on a different host, set the proxy 
 VITE_API_TARGET=http://radio.local npm run dev
 ```
 
+## Remote access (optional)
+
+The default install is LAN-only. To reach the controller from any network — phone on cellular, laptop on a different Wi-Fi — set up a Cloudflare Tunnel and a shared PIN. See [INSTALL.md §10](INSTALL.md#10-remote-access-optional) for full setup.
+
+Once enabled:
+- `http://radio.local` keeps working on the home LAN with no PIN
+- `https://radio.<your-domain>` is reachable from anywhere, gated by `RADIO_PIN`
+- A successful PIN entry sets a 7-day session cookie; `RADIO_SESSION_SECRET` (separate from the PIN) signs the cookie
+- To rotate the PIN: edit `/etc/radio-web.env` and `sudo systemctl restart radio-web`. The restart invalidates all remote sessions. `systemctl reload` does NOT pick up env-file changes.
+
 ## Install
 
 See [INSTALL.md](INSTALL.md) for full setup on a fresh Raspberry Pi.

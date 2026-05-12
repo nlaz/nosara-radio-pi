@@ -12,6 +12,10 @@ Restart=always
 RestartSec=5
 User=root
 Environment=SDL_AUDIODRIVER=alsa
+# Optional env file for remote-access secrets (RADIO_PIN, RADIO_SESSION_SECRET).
+# Leading `-` makes the unit non-fatal if the file is absent — LAN access keeps
+# working; only tunneled requests get 503 until the file is created.
+EnvironmentFile=-/etc/radio-web.env
 # Fail fast if the frontend hasn't been built (run `npm run build`).
 # Substitute USER below as well.
 ConditionPathExists=/home/USER/radio/dist/index.html
