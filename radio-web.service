@@ -1,6 +1,6 @@
 [Unit]
 Description=Radio.local stream controller
-After=network.target
+After=network.target sound.target
 
 [Service]
 Type=simple
@@ -10,6 +10,11 @@ Restart=always
 RestartSec=5
 User=root
 Environment=SDL_AUDIODRIVER=alsa
+# Fail fast if the frontend hasn't been built (run `npm run build`).
+ConditionPathExists=/home/USER/radio/dist/index.html
+# Override these if your hardware differs from HiFiBerry card 0:
+# Environment=RADIO_ALSA_CARD=0
+# Environment=RADIO_ALSA_CONTROL=Digital
 
 [Install]
 WantedBy=multi-user.target

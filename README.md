@@ -1,14 +1,22 @@
 # nosara-radio-pi
 
-Always-on audio streaming appliance for Raspberry Pi. The Pi pulls an HTTP MP3 stream and plays it through a connected speaker. Anyone on the local network can open `radio.local` in a browser to restart the stream or switch to a different URL.
+Always-on audio bridge for Raspberry Pi. The Pi resolves an Evenings station, plays the live broadcast through the connected speaker, and exposes a single-page operator UI at `http://radio.local` for anyone on the local network.
 
-## Usage
+## What you see at `radio.local`
 
-Open `http://radio.local` from any device on the local network.
+- **Station card** — artwork, name, host, listener count, and an on-air pill driven by the Evenings public API
+- **Live level meter** — stereo peak meter visualizing the source broadcast in real time (Web Audio, no extra dependencies)
+- **Bridge status** — playing / connecting / stopped / paused / error, distinct from the station's on-air state
+- **Playback controls** — play/pause, volume slider, and mute, all acting on the Pi's actual speaker output
+- **Stream URL or slug** — paste an Evenings station URL (`evenings.fm/<slug>`) or a bare slug; press Apply
+- **Presets** — save stations as one-tap chips; the active preset is highlighted
+- **Service controls** — Stop, Start, Restart, Reboot Pi (two-tap confirm), and an on-demand Logs viewer
 
-- **Status badge** — shows whether the stream is Playing, Connecting, Stopped, or Error
-- **Restart** — kills and relaunches the stream process
-- **URL field** — paste a new stream URL and press Apply; persists across reboots
+## Input semantics
+
+- `https://evenings.fm/nosara-pirate-radio` → resolved via `api.evenings.co/v1/streams/{slug}/live`; full station card with artwork
+- `nosara-pirate-radio` → bare slug, same resolver path
+- `https://media.evenings.co/s/elkVE8rA8` → direct media URL fallback; plays without API metadata
 
 ## Service management
 
@@ -21,20 +29,43 @@ journalctl -u radio-web -f         # follow live logs
 
 ## Config
 
-The active stream URL is saved to `radio/config.json`. Edit it directly and restart the service if you prefer not to use the web UI:
+The active station and saved presets live in `radio/config.json`:
+
+```json
+{
+  "active": "nosara-pirate-radio",
+  "presets": [
+    { "slug": "nosara-pirate-radio", "label": "Nosara Pirate Radio" }
+  ]
+}
+```
+
+Edit by hand if you prefer, then restart the service. The previous `{ "url": "..." }` shape is auto-migrated on first read.
+
+## Development
 
 ```bash
-nano ~/radio/config.json
-sudo systemctl restart radio-web
+npm install
+npm run build      # build the React app into dist/ for production
+npm run dev        # Vite dev server with HMR; proxies /api to localhost:8080
+npm test           # backend node:test suite (config, evenings, stream, alsa, server)
+npm run test:frontend  # Vitest specs for monitor components
+```
+
+For dev against a real Pi running the server on a different host, set the proxy target:
+
+```bash
+VITE_API_TARGET=http://radio.local npm run dev
 ```
 
 ## Install
 
-See [INSTALL.md](INSTALL.md) for full setup instructions on a fresh Raspberry Pi.
+See [INSTALL.md](INSTALL.md) for full setup on a fresh Raspberry Pi.
 
 ## Notes
 
 - `radio.local` resolves via mDNS/Avahi — works on macOS, iOS, Linux, and most Android devices. Windows requires Bonjour or an mDNS client.
-- No volume control — manage audio level at the OS or speaker level.
+- Volume is controlled via ALSA on card 0, mixer `Digital` (HiFiBerry default). Override with `RADIO_ALSA_CARD` and `RADIO_ALSA_CONTROL` env vars for other hardware.
+- The Evenings API is polled every 10 s with 30 s / 60 s backoff on failures. If the API is unreachable the last-known station data stays visible with an "API stale" sublabel.
+- If the resolved `streamUrl` rotates while the bridge is running, the player restarts against the new URL automatically.
 - No authentication — open to anyone on the local network.
-- No automatic stream recovery — use the Restart button if the stream drops.
