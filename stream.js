@@ -1,8 +1,6 @@
-const { spawn } = require('child_process');
+const childProcess = require('child_process');
 const readline = require('readline');
-const config = require('./config');
 
-// Error patterns confirmed by live testing on this device
 const ERROR_PATTERNS = [
   'Connection refused',
   'Connection timed out',
@@ -18,30 +16,32 @@ const ERROR_PATTERNS = [
 ];
 
 let status = 'stopped';
-let currentUrl = config.read();
+let currentStreamUrl = null;
 let proc = null;
-let _stopping = false;
+// What we intend the next exit to mean: 'stop' | 'pause' | null
+let intent = null;
 
-function start(url) {
-  if (proc) return;
-  currentUrl = url;
-  status = 'connecting';
-  _stopping = false;
-
-  proc = spawn('ffplay', ['-nodisp', '-loglevel', 'info', url], {
+function spawnPlayer(url) {
+  return childProcess.spawn('ffplay', ['-nodisp', '-loglevel', 'info', url], {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
+}
 
+function startInternal(url) {
+  if (proc) return;
+  currentStreamUrl = url;
+  status = 'connecting';
+  intent = null;
+
+  proc = spawnPlayer(url);
   const rl = readline.createInterface({ input: proc.stderr });
 
   rl.on('line', (line) => {
-    if (status === 'error' || _stopping) return;
-
+    if (status === 'error' || intent) return;
     if (line.includes('Stream #0:0: Audio:')) {
       status = 'playing';
       return;
     }
-
     for (const pattern of ERROR_PATTERNS) {
       if (line.includes(pattern)) {
         status = 'error';
@@ -50,44 +50,83 @@ function start(url) {
     }
   });
 
-  proc.on('exit', (_code, signal) => {
+  proc.on('exit', () => {
     rl.close();
     proc = null;
-
-    if (_stopping) {
-      status = 'stopped';
-      _stopping = false;
-    } else if (status !== 'error') {
-      // ffplay exited without us killing it and no error was detected in stderr
-      // Treat as error so the user knows the stream stopped unexpectedly
-      status = 'error';
-    }
+    if (intent === 'stop') status = 'stopped';
+    else if (intent === 'pause') status = 'paused';
+    else if (status !== 'error') status = 'error';
+    intent = null;
   });
 }
 
-function stop(onExit) {
+function killWith(nextIntent, onExit) {
   if (!proc) {
+    if (nextIntent === 'stop' && status !== 'stopped') status = 'stopped';
+    else if (nextIntent === 'pause' && status !== 'paused' && status !== 'stopped') status = 'paused';
     if (onExit) onExit();
     return;
   }
-  _stopping = true;
+  intent = nextIntent;
   if (onExit) proc.once('exit', onExit);
   proc.kill('SIGTERM');
 }
 
-function restart() {
-  const url = currentUrl;
-  stop(() => start(url));
+function start(url) {
+  if (!url || typeof url !== 'string') {
+    throw new TypeError('stream.start: url is required');
+  }
+  startInternal(url);
 }
 
-function setUrl(url) {
-  config.write(url);
-  currentUrl = url;
-  stop(() => start(url));
+function stop(onExit) {
+  killWith('stop', onExit);
+}
+
+function pause(onExit) {
+  if (!proc) {
+    // Idle states (stopped/paused/error) are left unchanged — no spawn, no flip.
+    if (onExit) onExit();
+    return;
+  }
+  killWith('pause', onExit);
+}
+
+function resume() {
+  if (proc) return;
+  if (!currentStreamUrl) return;
+  startInternal(currentStreamUrl);
+}
+
+function restart() {
+  const url = currentStreamUrl;
+  stop(() => { if (url) startInternal(url); });
+}
+
+function setStation({ streamUrl } = {}) {
+  if (!streamUrl || typeof streamUrl !== 'string') {
+    throw new TypeError('stream.setStation: { streamUrl } is required');
+  }
+  currentStreamUrl = streamUrl;
+  if (proc) {
+    stop(() => startInternal(streamUrl));
+  } else {
+    startInternal(streamUrl);
+  }
 }
 
 function getStatus() {
-  return { status, url: currentUrl };
+  return { status, streamUrl: currentStreamUrl };
 }
 
-module.exports = { start, stop, restart, setUrl, getStatus };
+function _resetForTests() {
+  status = 'stopped';
+  currentStreamUrl = null;
+  proc = null;
+  intent = null;
+}
+
+module.exports = {
+  start, stop, pause, resume, restart, setStation, getStatus,
+  _resetForTests,
+};
