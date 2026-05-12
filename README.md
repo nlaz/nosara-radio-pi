@@ -52,6 +52,12 @@ npm test           # backend node:test suite (config, evenings, stream, alsa, se
 npm run test:frontend  # Vitest specs for monitor components
 ```
 
+The Vite proxy targets `http://localhost:8080` by default. For local development you
+have two options:
+
+- Run the server on port 8080: `PORT=8080 node server.js`
+- Or point the proxy at the production port: `VITE_API_TARGET=http://localhost:80 npm run dev`
+
 For dev against a real Pi running the server on a different host, set the proxy target:
 
 ```bash

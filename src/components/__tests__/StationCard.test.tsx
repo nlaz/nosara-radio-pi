@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { StationCard } from './StationCard';
-import type { StationData } from '../types';
+import { StationCard } from '../StationCard';
+import type { StationData } from '../../types';
 
 const baseStation: StationData = {
   slug: 'nosara-pirate-radio',

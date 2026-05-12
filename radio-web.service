@@ -1,9 +1,11 @@
 [Unit]
 Description=Radio.local stream controller
-After=network.target sound.target
+After=network-online.target sound.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+# Substitute USER with your install user (same convention as ExecStart below).
 ExecStart=/usr/local/bin/node /home/USER/radio/server.js
 WorkingDirectory=/home/USER/radio
 Restart=always
@@ -11,6 +13,7 @@ RestartSec=5
 User=root
 Environment=SDL_AUDIODRIVER=alsa
 # Fail fast if the frontend hasn't been built (run `npm run build`).
+# Substitute USER below as well.
 ConditionPathExists=/home/USER/radio/dist/index.html
 # Override these if your hardware differs from HiFiBerry card 0:
 # Environment=RADIO_ALSA_CARD=0

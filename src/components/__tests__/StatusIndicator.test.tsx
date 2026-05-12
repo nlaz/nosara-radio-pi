@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { StatusIndicator } from './StatusIndicator';
-import type { BridgeStatus } from '../types';
+import { StatusIndicator } from '../StatusIndicator';
+import type { BridgeStatus } from '../../types';
 
 describe('StatusIndicator', () => {
   const cases: Array<[BridgeStatus, string]> = [
