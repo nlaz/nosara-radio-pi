@@ -273,6 +273,78 @@ sudo ufw enable
 
 The cloudflared tunnel connects from `127.0.0.1` so it stays allowed; remote internet traffic that tries to reach port 80 directly is blocked, and the only public path becomes the auth-gated tunnel.
 
+## 11. Remote SSH via Tailscale (optional)
+
+Tailscale gives you a private, encrypted network between your devices. Once installed, you can `ssh bailey@radio` from anywhere — phone on cellular, laptop on a different Wi-Fi — with no port forwarding and no public SSH exposure.
+
+### Install Tailscale
+
+```bash
+# Add the Tailscale apt repository
+curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg \
+  | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list \
+  | sudo tee /etc/apt/sources.list.d/tailscale.list
+
+sudo apt-get update
+sudo apt-get install -y tailscale
+```
+
+If your OS codename is not `trixie`, replace it in both URLs. Check with `lsb_release -cs`.
+
+### Bring Tailscale up
+
+```bash
+sudo tailscale up --ssh --hostname=radio --operator=$USER
+```
+
+`--ssh` enables Tailscale SSH intercept (requires an `ssh` block in your tailnet ACL — see below).
+`--hostname=radio` gives the Pi a stable MagicDNS name across re-provisioning.
+`--operator=$USER` lets your local user manage Tailscale without sudo.
+
+The command will print an auth URL; open it in a browser and sign in to your Tailscale account (Google, GitHub, Apple, email). The command returns once the device is authorized.
+
+### Enable Tailscale SSH in your tailnet ACL (optional but recommended)
+
+Tailscale SSH allows authentication via tailnet identity — no SSH keys or passwords needed. To enable it, add an `ssh` block to your tailnet ACL at [https://login.tailscale.com/admin/acls](https://login.tailscale.com/admin/acls):
+
+```json
+"ssh": [
+  {
+    "action": "accept",
+    "src": ["autogroup:member"],
+    "dst": ["autogroup:self"],
+    "users": ["autogroup:nonroot", "root"]
+  }
+]
+```
+
+This allows every member of your tailnet to SSH into their own devices.
+
+Without the ACL block, standard SSH still works — Tailscale provides the network path and sshd handles auth via password or `~/.ssh/authorized_keys`.
+
+### Add your SSH public key (if not using Tailscale SSH)
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+# From your client machine:
+ssh-copy-id bailey@radio   # prompts once for password, then passwordless forever
+```
+
+### Verify
+
+```bash
+# From any device on the tailnet (another laptop, phone on cellular, etc.):
+ssh bailey@radio
+```
+
+You should land in a shell on the Pi. Check the Pi's tailnet IP and MagicDNS name any time with:
+
+```bash
+tailscale status
+tailscale ip -4
+```
+
 ## Existing installs: config migration
 
 If you previously ran this app, your `config.json` looks like:
