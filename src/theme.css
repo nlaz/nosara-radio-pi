@@ -1,0 +1,94 @@
+@import url('@fontsource/ibm-plex-sans/400.css');
+@import url('@fontsource/ibm-plex-sans/500.css');
+@import url('@fontsource/ibm-plex-sans/600.css');
+@import url('@fontsource/ibm-plex-sans/700.css');
+@import url('@fontsource/ibm-plex-mono/400.css');
+@import url('@fontsource/ibm-plex-mono/500.css');
+@import url('@fontsource/ibm-plex-mono/600.css');
+
+:root {
+  /* Palette inherited from nosararadio.com */
+  --navy: #072d44;
+  --navy-soft: #0f5e87;
+  --blue: #18a2d2;
+  --blue-soft: #1d9bc8;
+  --cream: #f7f2db;
+  --cream-deep: #ece4c7;
+  --cream-bright: #fbf7e9;
+  --text: #08293d;
+  --muted: #5a6f7d;
+  --error: #c44a3b;
+  --success: #2f8c3d;
+
+  --shadow-card: 0 24px 60px rgba(5, 28, 42, 0.18);
+  --shadow-press: 0 8px 24px rgba(5, 28, 42, 0.12);
+  --radius-lg: 28px;
+  --radius-md: 20px;
+  --radius-sm: 12px;
+  --radius-pill: 999px;
+
+  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--text);
+  background:
+    radial-gradient(circle at top, rgba(24, 162, 210, 0.14), transparent 32%),
+    linear-gradient(180deg, var(--cream-bright) 0%, var(--cream) 100%);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-feature-settings: "tnum" 1;
+}
+
+.label {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+#root {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}

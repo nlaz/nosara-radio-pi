@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Radio skull mark</title>
+  <desc id="desc">Blue radio skull symbol with concentric signal rings.</desc>
+  <rect width="512" height="512" fill="#072d44" />
+  <circle cx="256" cy="256" r="222" fill="#0d5b83" />
+  <circle cx="256" cy="256" r="182" fill="#1275a3" />
+  <circle cx="256" cy="256" r="145" fill="#1889b7" />
+  <circle cx="256" cy="256" r="108" fill="#1d9bc8" />
+  <path d="M256 136c-69.6 0-126 56.4-126 126v79.1l44 44V438h164v-52.9l44-44V262c0-69.6-56.4-126-126-126Z"
+        fill="#2099ca" stroke="#f7f4ea" stroke-linejoin="round" stroke-width="20" />
+  <circle cx="204" cy="278" r="26" fill="#000" />
+  <circle cx="308" cy="278" r="26" fill="#000" />
+  <path d="M256 315l21 37h-42Z" fill="#000" />
+</svg>
