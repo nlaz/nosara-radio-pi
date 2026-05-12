@@ -2,10 +2,26 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
+const auth = require('./auth');
 
 const POLL_BACKOFF_MS = [10_000, 30_000, 60_000];
 const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 1000;
+
+const LOGIN_TEMPLATE = fs.readFileSync(
+  path.join(__dirname, 'views', 'login.html'),
+  'utf8',
+);
+
+function renderLoginPage({ error, returnPath, disabled }) {
+  const errorBlock = error
+    ? `<p class="login-error" role="alert" aria-live="polite">${auth.escapeHtml(error)}</p>`
+    : '';
+  return LOGIN_TEMPLATE
+    .replaceAll('__ERROR_BLOCK__', errorBlock)
+    .replaceAll('__RETURN__', auth.escapeHtml(returnPath || '/'))
+    .replaceAll('__DISABLED__', disabled ? 'disabled' : '');
+}
 
 function createApp(deps = {}) {
   const config = deps.config || require('./config');
@@ -13,6 +29,10 @@ function createApp(deps = {}) {
   const alsa = deps.alsa || require('./alsa');
   const evenings = deps.evenings || require('./evenings');
   const execFile = deps.execFile || cp.execFile;
+  const getPin = deps.getPin || (() => process.env.RADIO_PIN);
+  const getSessionSecret = deps.getSessionSecret || (() => process.env.RADIO_SESSION_SECRET);
+  const rateLimiter = deps.rateLimiter || auth.createRateLimiter();
+  const now = deps.now || (() => Date.now());
 
   // Mutable state owned by this app instance
   const state = {
@@ -267,6 +287,74 @@ function createApp(deps = {}) {
       if (err) return res.status(500).json({ error: stderr || err.message });
       res.type('text/plain').send(stdout);
     });
+  });
+
+  // --- Authentication (login / logout) ---------------------------------
+  // Route-scoped urlencoded parser; everything else stays JSON-only.
+  const urlEncodedParser = express.urlencoded({ extended: false, limit: '4kb' });
+
+  app.get('/login', (req, res) => {
+    const ret = auth.sanitizeReturnPath(
+      typeof req.query.return === 'string' ? req.query.return : '/',
+    );
+    res.type('html').send(renderLoginPage({ returnPath: ret, error: null, disabled: false }));
+  });
+
+  app.post('/login', urlEncodedParser, (req, res) => {
+    const ret = auth.sanitizeReturnPath(
+      typeof req.body?.return === 'string' ? req.body.return : '/',
+    );
+    const ip = auth.ipForRateLimit(req);
+
+    if (rateLimiter.isLockedOut(ip)) {
+      return res.status(200).type('html').send(renderLoginPage({
+        returnPath: ret,
+        error: 'Too many attempts. Try again later.',
+        disabled: true,
+      }));
+    }
+
+    const expected = getPin();
+    const secret = getSessionSecret();
+    if (!expected || !secret) {
+      return res.status(503).type('html').send(renderLoginPage({
+        returnPath: ret,
+        error: 'Auth not configured on the server.',
+        disabled: true,
+      }));
+    }
+
+    const submitted = typeof req.body?.pin === 'string' ? req.body.pin : '';
+    if (!auth.verifyPin(submitted, expected)) {
+      rateLimiter.recordFailure(ip);
+      return res.status(200).type('html').send(renderLoginPage({
+        returnPath: ret,
+        error: 'Incorrect PIN.',
+        disabled: false,
+      }));
+    }
+
+    rateLimiter.recordSuccess(ip);
+    const t = now();
+    const token = auth.signSession({
+      iat: t,
+      exp: t + auth.SESSION_MAX_AGE_MS,
+      pin_fingerprint: auth.pinFingerprint(secret, expected),
+    }, secret);
+    const maxAge = Math.floor(auth.SESSION_MAX_AGE_MS / 1000);
+    res.setHeader(
+      'Set-Cookie',
+      `${auth.COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`,
+    );
+    res.redirect(303, ret);
+  });
+
+  app.post('/logout', (_req, res) => {
+    res.setHeader(
+      'Set-Cookie',
+      `${auth.COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+    );
+    res.redirect(303, '/login');
   });
 
   // --- Static assets + SPA fallback ------------------------------------

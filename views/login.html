@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#072d44" />
+    <link rel="icon" type="image/svg+xml" href="/skull.svg" />
+    <title>radio — sign in</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; }
+      body {
+        font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+        color: #08293d;
+        background:
+          radial-gradient(circle at top, rgba(24, 162, 210, 0.14), transparent 32%),
+          linear-gradient(180deg, #fbf7e9 0%, #f7f2db 100%);
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 1.25rem;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        width: min(28rem, 100%);
+        background: #fbf7e9;
+        border-radius: 28px;
+        padding: 2.25rem 2rem;
+        box-shadow: 0 24px 60px rgba(5, 28, 42, 0.18);
+        display: grid;
+        gap: 1.25rem;
+      }
+      header {
+        display: grid;
+        gap: 0.5rem;
+        justify-items: center;
+        text-align: center;
+      }
+      header img {
+        width: 56px;
+        height: 56px;
+      }
+      h1 {
+        font-size: clamp(1.3rem, 3.4vw, 2rem);
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: lowercase;
+        color: #072d44;
+      }
+      .tagline {
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #5a6f7d;
+      }
+      form { display: grid; gap: 0.75rem; }
+      label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #5a6f7d;
+      }
+      input[type="password"] {
+        font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.1rem;
+        padding: 0.85rem 1rem;
+        border: 1px solid rgba(7, 45, 68, 0.18);
+        border-radius: 12px;
+        background: white;
+        color: #08293d;
+        letter-spacing: 0.08em;
+        width: 100%;
+      }
+      input[type="password"]:focus {
+        outline: 2px solid #18a2d2;
+        outline-offset: 2px;
+        border-color: transparent;
+      }
+      input[type="password"]:disabled {
+        background: rgba(7, 45, 68, 0.04);
+        color: #5a6f7d;
+      }
+      button {
+        font-family: inherit;
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        padding: 0.85rem 1.25rem;
+        background: #072d44;
+        color: #fbf7e9;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        min-height: 44px;
+      }
+      button:hover:not(:disabled) { background: #0f5e87; }
+      button:disabled { background: rgba(7, 45, 68, 0.4); cursor: not-allowed; }
+      .login-error {
+        font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+        color: #c44a3b;
+        background: rgba(196, 74, 59, 0.08);
+        border: 1px solid rgba(196, 74, 59, 0.3);
+        border-radius: 12px;
+        padding: 0.65rem 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="/skull.svg" alt="" />
+        <h1>radio</h1>
+        <p class="tagline">Sign in to control</p>
+      </header>
+      __ERROR_BLOCK__
+      <form method="post" action="/login">
+        <label for="pin">PIN</label>
+        <input
+          id="pin"
+          name="pin"
+          type="password"
+          autocomplete="current-password"
+          autofocus
+          required
+          __DISABLED__
+        />
+        <input type="hidden" name="return" value="__RETURN__" />
+        <button type="submit" __DISABLED__>Unlock</button>
+      </form>
+    </main>
+  </body>
+</html>

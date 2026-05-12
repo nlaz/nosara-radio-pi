@@ -64,11 +64,13 @@ function close(srv) {
   return new Promise((resolve) => srv.close(resolve));
 }
 
-async function request(srv, method, urlPath, body) {
+async function request(srv, method, urlPath, body, extraHeaders) {
   return new Promise((resolve, reject) => {
+    const headers = body ? { 'Content-Type': 'application/json' } : {};
+    Object.assign(headers, extraHeaders || {});
     const req = http.request({
       method, port: srv.address().port, host: '127.0.0.1', path: urlPath,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers,
     }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -76,12 +78,35 @@ async function request(srv, method, urlPath, body) {
         const text = Buffer.concat(chunks).toString('utf8');
         let json = null;
         try { json = text ? JSON.parse(text) : null; } catch {}
-        resolve({ status: res.statusCode, text, json });
+        resolve({ status: res.statusCode, text, json, headers: res.headers });
       });
     });
     req.on('error', reject);
     if (body) req.end(JSON.stringify(body));
     else req.end();
+  });
+}
+
+async function requestForm(srv, urlPath, formBody, extraHeaders) {
+  const body = new URLSearchParams(formBody).toString();
+  return new Promise((resolve, reject) => {
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(body),
+    };
+    Object.assign(headers, extraHeaders || {});
+    const req = http.request({
+      method: 'POST', port: srv.address().port, host: '127.0.0.1', path: urlPath, headers,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({ status: res.statusCode, text, headers: res.headers });
+      });
+    });
+    req.on('error', reject);
+    req.end(body);
   });
 }
 
@@ -396,5 +421,126 @@ test('U4.T22: POST /api/presets rejects invalid slug via evenings.extractSlug', 
   await withApp(mocks, async ({ srv }) => {
     const { status } = await request(srv, 'POST', '/api/presets', { slug: '!!bad!!', label: 'x' });
     assert.equal(status, 400);
+  });
+});
+
+// ── U2: login routes ────────────────────────────────────────────────────────
+
+const auth = require('../auth');
+
+function authMocks(overrides = {}) {
+  return {
+    ...makeMocks(overrides),
+    getPin: overrides.getPin || (() => 'puravida'),
+    getSessionSecret: overrides.getSessionSecret || (() => 'a'.repeat(32)),
+    rateLimiter: overrides.rateLimiter,
+  };
+}
+
+test('U2.L1: GET /login returns 200 HTML with the form', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status, text, headers } = await request(srv, 'GET', '/login');
+    assert.equal(status, 200);
+    assert.match(headers['content-type'], /text\/html/);
+    assert.match(text, /name="pin"/);
+    assert.match(text, /name="return"/);
+    assert.match(text, /action="\/login"/);
+  });
+});
+
+test('U2.L2: GET /login?return=/presets reflects sanitized return into hidden field', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { text } = await request(srv, 'GET', '/login?return=%2Fpresets');
+    assert.match(text, /value="\/presets"/);
+  });
+});
+
+test('U2.L3: GET /login XSS-escapes a malicious return value', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { text } = await request(srv, 'GET', '/login?return=%22%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E');
+    // The malicious value gets URL-rejected to '/', but even if it didn't, the
+    // escapeHtml call would turn < and " into entities. Verify no live script.
+    assert.ok(!text.includes('<script>alert(1)'));
+  });
+});
+
+test('U2.L4: POST /login with wrong PIN returns 200 with Incorrect PIN message, no cookie', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status, text, headers } = await requestForm(srv, '/login', { pin: 'wrong', return: '/' });
+    assert.equal(status, 200);
+    assert.match(text, /Incorrect PIN/);
+    assert.equal(headers['set-cookie'], undefined);
+  });
+});
+
+test('U2.L5: POST /login with correct PIN returns 303 with Set-Cookie', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status, headers } = await requestForm(srv, '/login', { pin: 'puravida', return: '/' });
+    assert.equal(status, 303);
+    assert.equal(headers.location, '/');
+    const cookie = (headers['set-cookie'] || [])[0] || '';
+    assert.match(cookie, /^radio_session=/);
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /Secure/);
+    assert.match(cookie, /SameSite=Lax/);
+    assert.match(cookie, /Max-Age=604800/);
+  });
+});
+
+test('U2.L6: POST /login with malicious return redirects to /', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    for (const r of ['//evil.com/', 'https://evil.com/', '/foo\r\nSet-Cookie: x=1', '/foo%0d%0a']) {
+      const { status, headers } = await requestForm(srv, '/login', { pin: 'puravida', return: r });
+      assert.equal(status, 303, `bad return "${r}" should still issue cookie`);
+      assert.equal(headers.location, '/', `return "${r}" must resolve to /`);
+    }
+  });
+});
+
+test('U2.L7: POST /login lockout after MAX_FAILS failures, locks out further attempts', async () => {
+  const rl = auth.createRateLimiter({ maxFails: 3, windowMs: 60_000, lockoutMs: 600_000 });
+  await withApp(authMocks({ rateLimiter: rl }), async ({ srv }) => {
+    for (let i = 0; i < 3; i++) {
+      await requestForm(srv, '/login', { pin: 'wrong', return: '/' });
+    }
+    // Now even the correct PIN is rejected:
+    const { status, text, headers } = await requestForm(srv, '/login', { pin: 'puravida', return: '/' });
+    assert.equal(status, 200);
+    assert.match(text, /Too many attempts/);
+    assert.equal(headers['set-cookie'], undefined);
+  });
+});
+
+test('U2.L8: rate limiter keys on Cf-Connecting-Ip independently from socket peer', async () => {
+  const rl = auth.createRateLimiter({ maxFails: 3, windowMs: 60_000, lockoutMs: 600_000 });
+  await withApp(authMocks({ rateLimiter: rl }), async ({ srv }) => {
+    // 3 failures from IP A → A is locked out
+    for (let i = 0; i < 3; i++) {
+      await requestForm(srv, '/login', { pin: 'wrong', return: '/' }, { 'Cf-Connecting-Ip': '1.1.1.1' });
+    }
+    // Correct PIN from IP B still succeeds
+    const { status, headers } = await requestForm(srv, '/login', { pin: 'puravida', return: '/' }, { 'Cf-Connecting-Ip': '2.2.2.2' });
+    assert.equal(status, 303);
+    assert.match((headers['set-cookie'] || [])[0] || '', /^radio_session=/);
+  });
+});
+
+test('U2.L9: POST /login returns 503 when RADIO_PIN is unset', async () => {
+  await withApp(authMocks({ getPin: () => undefined }), async ({ srv }) => {
+    const { status, text, headers } = await requestForm(srv, '/login', { pin: 'puravida', return: '/' });
+    assert.equal(status, 503);
+    assert.match(text, /Auth not configured/);
+    assert.equal(headers['set-cookie'], undefined);
+  });
+});
+
+test('U2.L10: POST /logout clears the cookie and redirects to /login', async () => {
+  await withApp(authMocks(), async ({ srv }) => {
+    const { status, headers } = await requestForm(srv, '/logout', {});
+    assert.equal(status, 303);
+    assert.equal(headers.location, '/login');
+    const cookie = (headers['set-cookie'] || [])[0] || '';
+    assert.match(cookie, /radio_session=;/);
+    assert.match(cookie, /Max-Age=0/);
   });
 });
