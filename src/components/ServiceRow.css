@@ -1,0 +1,35 @@
+.service-row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.95rem;
+  background: var(--cream-bright);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(7, 45, 68, 0.08);
+}
+
+.service-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.btn-tertiary {
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: rgba(7, 45, 68, 0.08);
+  color: var(--text);
+  transition: background 0.15s;
+}
+
+.btn-tertiary:hover:not(:disabled) { background: rgba(7, 45, 68, 0.16); }
+
+.btn-danger { color: var(--error); }
+.btn-danger:hover:not(:disabled) { background: rgba(196, 74, 59, 0.16); }
+
+.btn-danger.is-pending {
+  background: var(--error);
+  color: var(--cream-bright);
+}
