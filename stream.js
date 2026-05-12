@@ -22,7 +22,7 @@ let proc = null;
 let intent = null;
 
 function spawnPlayer(url) {
-  return childProcess.spawn('ffplay', ['-nodisp', '-loglevel', 'info', url], {
+  return childProcess.spawn('ffplay', ['-nodisp', '-loglevel', 'info', '--', url], {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
 }

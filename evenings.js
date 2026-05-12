@@ -124,10 +124,13 @@ async function resolveStation(slugOrInput, options = {}) {
   try { body = await res.json(); }
   catch (err) { throw new EveningsApiUnreachable(slug, err); }
 
+  const streamUrl = typeof body.streamUrl === 'string' && /^https?:\/\//.test(body.streamUrl)
+    ? body.streamUrl
+    : null;
   return {
     slug,
     kind: 'station',
-    streamUrl: typeof body.streamUrl === 'string' ? body.streamUrl : null,
+    streamUrl,
     name: typeof body.name === 'string' ? body.name : null,
     image: typeof body.image === 'string' ? body.image : null,
     host: typeof body.host === 'string' ? body.host : null,
