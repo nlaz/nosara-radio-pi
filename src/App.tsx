@@ -1,7 +1,8 @@
-import { Component, type ReactNode, type ErrorInfo } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode, type ErrorInfo } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { MonitorColumn } from './components/MonitorColumn';
 import { ControlColumn } from './components/ControlColumn';
+import { Toast } from './components/Toast';
 import './App.css';
 
 interface ErrorBoundaryProps {
@@ -40,6 +41,19 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
 export function App() {
   const { status, error, refresh } = useStatus();
+  const [toast, setToast] = useState<string | null>(null);
+  const prevBridgeStatus = useRef<string | null>(null);
+
+  // Fire a toast whenever bridge status transitions into 'error'.
+  // Using a ref for the previous value avoids a toast on every poll
+  // while the stream is already in error state.
+  useEffect(() => {
+    const current = status?.bridge.status ?? null;
+    if (current === 'error' && prevBridgeStatus.current !== 'error') {
+      setToast(status?.bridge.errorMessage || 'Stream error');
+    }
+    prevBridgeStatus.current = current;
+  }, [status?.bridge.status, status?.bridge.errorMessage]);
 
   return (
     <div className="app-shell">
@@ -52,6 +66,7 @@ export function App() {
           <ControlColumn status={status} onRefresh={refresh} />
         </ErrorBoundary>
       </main>
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 }

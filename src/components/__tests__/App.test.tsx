@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { App } from '../../App';
 
 // Mock child columns so tests focus on App structure only
@@ -40,5 +40,34 @@ describe('App', () => {
   test('U2.T3: error banner is absent when useStatus returns no error', () => {
     render(<App />);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('U2.T4: toast appears when bridge status transitions to error', async () => {
+    const errorStatus = {
+      bridge: { status: 'error' as const, errorMessage: 'No audio device', streamUrl: null },
+      station: { slug: null, kind: null, streamUrl: null, name: null, image: null,
+        host: null, online: null, listeners: null, fetchedAt: null, apiReachable: true },
+      audio: { percent: null, muted: null, error: null },
+      active: 'test',
+      presets: [],
+    };
+    mockUseStatus.mockReturnValue({ status: errorStatus, error: null, refresh: vi.fn() });
+    await act(async () => { render(<App />); });
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('No audio device');
+  });
+
+  test('U2.T5: toast uses generic "Stream error" when errorMessage is null', async () => {
+    const errorStatus = {
+      bridge: { status: 'error' as const, errorMessage: null, streamUrl: null },
+      station: { slug: null, kind: null, streamUrl: null, name: null, image: null,
+        host: null, online: null, listeners: null, fetchedAt: null, apiReachable: true },
+      audio: { percent: null, muted: null, error: null },
+      active: 'test',
+      presets: [],
+    };
+    mockUseStatus.mockReturnValue({ status: errorStatus, error: null, refresh: vi.fn() });
+    await act(async () => { render(<App />); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Stream error');
   });
 });
