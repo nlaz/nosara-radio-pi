@@ -86,6 +86,9 @@ export function useLevelMeter(
       audio.preload = 'auto';
       audio.src = streamUrl;
       void audio.play().catch((err: unknown) => {
+        // AbortError means tearDown() called audio.pause() before play() resolved
+        // (e.g. streamUrl changed or component unmounted). That's expected — ignore it.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         setError(`Audio fetch blocked: ${toMessage(err)}`);
       });
 

@@ -1,10 +1,7 @@
 .playback {
   display: grid;
   gap: 0.7rem;
-  padding: 0.95rem;
-  background: var(--cream-bright);
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(7, 45, 68, 0.08);
+  padding: 0.95rem 0;
 }
 
 .playback-row {

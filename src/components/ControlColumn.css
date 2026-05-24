@@ -1,5 +1,9 @@
 .control-column {
   display: grid;
-  gap: 1rem;
+  gap: 0;
   align-content: start;
+}
+
+.control-column > * + * {
+  border-top: 1px solid rgba(7, 45, 68, 0.07);
 }

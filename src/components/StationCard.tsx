@@ -5,18 +5,6 @@ export interface StationCardProps {
   station: StationData | null;
 }
 
-function relativeTime(iso: string | null): string {
-  if (!iso) return '—';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '—';
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return `${hours}h ago`;
-}
-
 export function StationCard({ station }: StationCardProps) {
   if (!station || station.kind === null) {
     return (
@@ -25,7 +13,6 @@ export function StationCard({ station }: StationCardProps) {
           <img src="/skull.svg" alt="" aria-hidden="true" />
         </div>
         <div className="station-meta">
-          <div className="label">Station</div>
           <div className="station-name">Not configured</div>
         </div>
       </div>
@@ -33,6 +20,27 @@ export function StationCard({ station }: StationCardProps) {
   }
 
   const isMedia = station.kind === 'media';
+
+  let statusEl: React.ReactNode = null;
+  if (!isMedia) {
+    if (station.online === true) {
+      const listenerSuffix =
+        station.listeners !== null ? ` · ${station.listeners} listening` : '';
+      statusEl = (
+        <span className="station-status">
+          <span className="station-status-dot is-on" />
+          {`On air${listenerSuffix}`}
+        </span>
+      );
+    } else if (station.online === false) {
+      statusEl = (
+        <span className="station-status">
+          <span className="station-status-dot is-off" />
+          Off air
+        </span>
+      );
+    }
+  }
 
   return (
     <div className={`station-card ${isMedia ? 'station-media' : 'station-known'}`}>
@@ -46,31 +54,10 @@ export function StationCard({ station }: StationCardProps) {
         )}
       </div>
       <div className="station-meta">
-        <div className="label">{isMedia ? 'Direct stream' : 'Station'}</div>
         <div className="station-name">{station.name || station.slug || 'Unknown'}</div>
-        {!isMedia && (
-          <div className="station-pills">
-            {station.online !== null && (
-              <span className={`pill ${station.online ? 'pill-on' : 'pill-off'} mono`}>
-                {station.online ? 'On air' : 'Off air'}
-              </span>
-            )}
-            {station.listeners !== null && station.online && (
-              <span className="pill pill-soft mono" aria-label="Listener count">
-                {station.listeners} listening
-              </span>
-            )}
-          </div>
-        )}
+        {statusEl}
         {!isMedia && station.host && (
-          <div className="station-host mono">Host · {station.host}</div>
-        )}
-        {!isMedia && (
-          <div className="station-freshness mono">
-            {station.apiReachable
-              ? <>Synced · {relativeTime(station.fetchedAt)}</>
-              : <>API stale · {relativeTime(station.fetchedAt)}</>}
-          </div>
+          <div className="station-host mono">{station.host}</div>
         )}
       </div>
     </div>

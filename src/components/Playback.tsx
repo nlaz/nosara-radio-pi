@@ -59,7 +59,7 @@ export function Playback({ status, onRefresh }: PlaybackProps) {
           disabled={busy === 'play'}
           aria-label={isPlaying ? 'Pause' : 'Play'}
         >
-          {isPlaying ? '❚❚ Pause' : '▶ Play'}
+          {isPlaying ? 'Pause' : 'Play'}
         </button>
         <button
           type="button"
@@ -69,7 +69,7 @@ export function Playback({ status, onRefresh }: PlaybackProps) {
           aria-pressed={audio.muted ?? false}
           aria-label={audio.muted ? 'Unmute' : 'Mute'}
         >
-          {audio.muted ? '🔇 Unmute' : '🔊 Mute'}
+          {audio.muted ? 'Unmute' : 'Mute'}
         </button>
       </div>
       <div className="volume-row">
@@ -83,6 +83,7 @@ export function Playback({ status, onRefresh }: PlaybackProps) {
           onTouchEnd={() => { if (dragging) { void commitVolume(draft); setDragging(false); } }}
           onKeyDown={() => { setDragging(true); }}
           onKeyUp={() => { if (dragging) { void commitVolume(draft); setDragging(false); } }}
+          style={{ '--p': `${draft}%` } as React.CSSProperties}
           className="volume-slider"
           aria-label="Speaker volume"
         />

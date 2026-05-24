@@ -43,14 +43,7 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <img className="app-mark" src="/skull.svg" alt="" aria-hidden="true" />
-        <div className="app-wordmark">
-          <span>RADIO</span>
-          <span>CONTROL</span>
-        </div>
-        {error && <div className="app-error" role="alert">{error}</div>}
-      </header>
+      {error && <div className="app-error" role="alert">{error}</div>}
       <main className="app-grid">
         <ErrorBoundary label="Monitor">
           <MonitorColumn status={status} />

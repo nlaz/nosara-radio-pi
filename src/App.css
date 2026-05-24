@@ -9,29 +9,6 @@
   gap: 1.25rem;
 }
 
-.app-header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 1rem;
-}
-
-.app-mark {
-  width: 64px;
-  height: 64px;
-  border-radius: 14px;
-}
-
-.app-wordmark {
-  display: grid;
-  font-family: var(--sans);
-  font-weight: 700;
-  font-size: clamp(1.3rem, 3.4vw, 2rem);
-  line-height: 0.96;
-  letter-spacing: 0.18em;
-  color: var(--blue);
-}
-
 .app-error {
   font-family: var(--mono);
   font-size: 0.78rem;

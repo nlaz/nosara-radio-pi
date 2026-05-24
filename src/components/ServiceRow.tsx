@@ -45,16 +45,14 @@ export function ServiceRow({ onRefresh, serverReachable }: ServiceRowProps) {
     <div className="service-row">
       <span className="label">Service</span>
       <div className="service-buttons">
-        <button type="button" className="btn-tertiary" disabled={disabled} onClick={() => simpleAction(api.stop)}>Stop</button>
-        <button type="button" className="btn-tertiary" disabled={disabled} onClick={() => simpleAction(api.play)}>Start</button>
-        <button type="button" className="btn-tertiary" disabled={disabled} onClick={() => simpleAction(api.restart)}>Restart</button>
+        <button type="button" className="btn-tertiary" disabled={disabled} onClick={() => simpleAction(api.restart)}>Restart stream</button>
         <button
           type="button"
           className={`btn-tertiary btn-danger ${rebootConfirm.pending ? 'is-pending' : ''}`}
           disabled={disabled}
           onClick={rebootConfirm.fire}
         >
-          {rebooting ? 'Rebooting…' : rebootConfirm.pending ? 'Tap again to reboot' : 'Reboot Pi'}
+          {rebooting ? 'Rebooting…' : rebootConfirm.pending ? 'Tap again to reboot' : 'Reboot device'}
         </button>
         <button type="button" className="btn-tertiary" disabled={disabled} onClick={() => setLogsOpen(true)}>Logs</button>
       </div>
