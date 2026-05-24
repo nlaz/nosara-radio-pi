@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type ReactNode, type ErrorInfo } from 'react';
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode, type ErrorInfo } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { MonitorColumn } from './components/MonitorColumn';
 import { ControlColumn } from './components/ControlColumn';
@@ -43,6 +43,8 @@ export function App() {
   const { status, error, refresh } = useStatus();
   const [toast, setToast] = useState<string | null>(null);
   const prevBridgeStatus = useRef<string | null>(null);
+  // Stable reference so Toast's auto-dismiss timer isn't reset on every poll re-render.
+  const dismissToast = useCallback(() => setToast(null), []);
 
   // Fire a toast whenever bridge status transitions into 'error'.
   // Using a ref for the previous value avoids a toast on every poll
@@ -66,7 +68,7 @@ export function App() {
           <ControlColumn status={status} onRefresh={refresh} />
         </ErrorBoundary>
       </main>
-      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
+      {toast && <Toast message={toast} onDismiss={dismissToast} />}
     </div>
   );
 }

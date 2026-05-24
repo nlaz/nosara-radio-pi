@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import './Toast.css';
 
-const DISMISS_MS = 5000;
+const DISMISS_MS = 4000;
 
 export interface ToastProps {
   message: string;
