@@ -32,6 +32,8 @@ function makeMocks(overrides = {}) {
       getVolume: async () => ({ percent: 80, muted: false }),
       setVolume: async (p) => ({ percent: p, muted: false }),
       setMuted: async (m) => ({ percent: 80, muted: m }),
+      setCard: () => {},
+      watchDevice: () => () => {}, // no-op watcher; override per test as needed
       ...overrides.alsa,
     },
     evenings: {
@@ -51,6 +53,7 @@ function makeMocks(overrides = {}) {
       ...overrides.evenings,
     },
     execFile: overrides.execFile || ((_cmd, _args, cb) => setImmediate(() => cb(null, 'log output', ''))),
+    getDeviceName: overrides.getDeviceName || (() => ''),
   };
 }
 
@@ -114,7 +117,7 @@ async function withApp(mocks, fn) {
   const handles = createApp(mocks);
   const srv = await listenOnPort(handles.app);
   try { await fn({ srv, ...handles, mocks }); }
-  finally { handles.stopPoll(); await close(srv); }
+  finally { handles.stopPoll(); handles.stopDeviceWatch?.(); await close(srv); }
 }
 
 test('U4.T1: GET /api/status returns the aggregated shape', async () => {
@@ -648,5 +651,114 @@ test('U3.M10: /skull.svg is bypassed even through the tunnel (for the login page
     assert.notEqual(status, 401);
     assert.notEqual(status, 303);
     assert.notEqual(status, 503);
+  });
+});
+
+// ── U5: transmitter device watcher ─────────────────────────────────────────
+
+test('U5.T1: transmitter is null in status when RADIO_ALSA_DEVICE_NAME is unset', async () => {
+  // Default mocks have no getDeviceName override → no device watcher
+  await withApp(makeMocks(), async ({ srv }) => {
+    const { json } = await request(srv, 'GET', '/api/status');
+    assert.equal(json.transmitter, null);
+  });
+});
+
+test('U5.T2: transmitter shows present=false before device is found', async () => {
+  const mocks = makeMocks({
+    alsa: {
+      getVolume: async () => ({ percent: 80, muted: false }),
+      setVolume: async (p) => ({ percent: p, muted: false }),
+      setMuted: async (m) => ({ percent: 80, muted: m }),
+      setCard: () => {},
+      // watchDevice never calls onAppear, so device stays absent
+      watchDevice: (_name, _opts) => () => {},
+    },
+    getDeviceName: () => 'USB Audio',
+  });
+  await withApp(mocks, async ({ srv }) => {
+    const { json } = await request(srv, 'GET', '/api/status');
+    assert.deepEqual(json.transmitter, { present: false, card: null });
+  });
+});
+
+test('U5.T3: onAppear updates transmitter state and restarts stream when playing', async () => {
+  let capturedOnAppear;
+  const cardsSeen = [];
+  const mocks = makeMocks({
+    alsa: {
+      getVolume: async () => ({ percent: 80, muted: false }),
+      setVolume: async (p) => ({ percent: p, muted: false }),
+      setMuted: async (m) => ({ percent: 80, muted: m }),
+      setCard: (idx) => cardsSeen.push(idx),
+      watchDevice: (_name, { onAppear }) => {
+        capturedOnAppear = onAppear;
+        return () => {};
+      },
+    },
+    getDeviceName: () => 'USB Audio',
+  });
+  mocks.stream._status = 'playing';
+
+  await withApp(mocks, async ({ srv, mocks: m }) => {
+    // Simulate the transmitter powering on
+    capturedOnAppear({ index: '1', name: 'USB Audio Device' });
+
+    const { json } = await request(srv, 'GET', '/api/status');
+    assert.deepEqual(json.transmitter, { present: true, card: '1' });
+    assert.deepEqual(cardsSeen, ['1']);
+    assert.ok(m.stream._calls.some(([fn]) => fn === 'restart'));
+  });
+});
+
+test('U5.T4: onAppear does not restart stream when stopped', async () => {
+  let capturedOnAppear;
+  const mocks = makeMocks({
+    alsa: {
+      getVolume: async () => ({ percent: 80, muted: false }),
+      setVolume: async (p) => ({ percent: p, muted: false }),
+      setMuted: async (m) => ({ percent: 80, muted: m }),
+      setCard: () => {},
+      watchDevice: (_name, { onAppear }) => {
+        capturedOnAppear = onAppear;
+        return () => {};
+      },
+    },
+    getDeviceName: () => 'USB Audio',
+  });
+  mocks.stream._status = 'stopped';
+
+  await withApp(mocks, async ({ mocks: m }) => {
+    capturedOnAppear({ index: '1', name: 'USB Audio Device' });
+    assert.ok(!m.stream._calls.some(([fn]) => fn === 'restart'));
+  });
+});
+
+test('U5.T5: onDisappear sets transmitter present=false', async () => {
+  let capturedOnAppear;
+  let capturedOnDisappear;
+  const mocks = makeMocks({
+    alsa: {
+      getVolume: async () => ({ percent: 80, muted: false }),
+      setVolume: async (p) => ({ percent: p, muted: false }),
+      setMuted: async (m) => ({ percent: 80, muted: m }),
+      setCard: () => {},
+      watchDevice: (_name, { onAppear, onDisappear }) => {
+        capturedOnAppear = onAppear;
+        capturedOnDisappear = onDisappear;
+        return () => {};
+      },
+    },
+    getDeviceName: () => 'USB Audio',
+  });
+
+  await withApp(mocks, async ({ srv }) => {
+    capturedOnAppear({ index: '1', name: 'USB Audio Device' });
+    const after = await request(srv, 'GET', '/api/status');
+    assert.equal(after.json.transmitter.present, true);
+
+    capturedOnDisappear();
+    const gone = await request(srv, 'GET', '/api/status');
+    assert.deepEqual(gone.json.transmitter, { present: false, card: null });
   });
 });

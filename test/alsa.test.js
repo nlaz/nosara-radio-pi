@@ -14,6 +14,15 @@ const SAMPLE_ON = `Simple mixer control 'Digital',0
 const SAMPLE_OFF = SAMPLE_ON.replace(/\[on\]/g, '[off]');
 const SAMPLE_50 = SAMPLE_ON.replace(/\[100%\]/g, '[50%]');
 
+const SAMPLE_APLAY = `**** List of PLAYBACK Hardware Devices ****
+card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]
+  Subdevices: 8/8
+  Subdevice #0: subdevice #0
+card 1: Device [USB Audio Device], device 0: USB Audio Device [USB Audio Device]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+`;
+
 function mockExecFile(t, responses) {
   const calls = [];
   let i = 0;
@@ -92,4 +101,162 @@ test('U3.T7: throws AlsaUnavailable on exec error', async (t) => {
 test('throws AlsaUnavailable on unparseable output', async (t) => {
   mockExecFile(t, ['totally unexpected output']);
   await assert.rejects(alsa.getVolume(), alsa.AlsaUnavailable);
+});
+
+// ── setCard / getCard ───────────────────────────────────────────────────────
+
+test('U3.T8: setCard changes the card used by subsequent amixer calls', async (t) => {
+  alsa.setCard('2');
+  const calls = mockExecFile(t, ['', SAMPLE_ON]);
+  await alsa.setVolume(75);
+  assert.equal(calls[0].args[1], '2');
+  alsa._resetCard(); // restore default for later tests
+});
+
+test('U3.T9: getCard returns the current card index', () => {
+  alsa._resetCard();
+  assert.equal(alsa.getCard(), '0');
+  alsa.setCard('3');
+  assert.equal(alsa.getCard(), '3');
+  alsa._resetCard();
+});
+
+// ── listCards ───────────────────────────────────────────────────────────────
+
+test('U3.T10: listCards parses aplay -l output into card objects', async (t) => {
+  mockExecFile(t, [SAMPLE_APLAY]);
+  const cards = await alsa.listCards();
+  assert.equal(cards.length, 2);
+  assert.deepEqual(cards[0], { index: '0', name: 'bcm2835 Headphones' });
+  assert.deepEqual(cards[1], { index: '1', name: 'USB Audio Device' });
+});
+
+test('U3.T11: listCards returns [] when aplay fails', async (t) => {
+  mockExecFile(t, [{ error: new Error('not found'), stderr: '' }]);
+  const cards = await alsa.listCards();
+  assert.deepEqual(cards, []);
+});
+
+test('U3.T12: listCards deduplicates cards that appear on multiple device lines', async (t) => {
+  const multiDevice = `**** List of PLAYBACK Hardware Devices ****
+card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]
+  Subdevices: 8/8
+  Subdevice #0: subdevice #0
+card 0: Headphones [bcm2835 Headphones], device 1: some other device
+`;
+  mockExecFile(t, [multiDevice]);
+  const cards = await alsa.listCards();
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].index, '0');
+});
+
+// ── findCard ────────────────────────────────────────────────────────────────
+
+test('U3.T13: findCard matches case-insensitively by name substring', () => {
+  const cards = [
+    { index: '0', name: 'bcm2835 Headphones' },
+    { index: '1', name: 'USB Audio Device' },
+  ];
+  assert.deepEqual(alsa.findCard(cards, 'usb audio'), { index: '1', name: 'USB Audio Device' });
+  assert.deepEqual(alsa.findCard(cards, 'USB AUDIO'), { index: '1', name: 'USB Audio Device' });
+  assert.equal(alsa.findCard(cards, 'nonexistent'), null);
+});
+
+test('U3.T14: findCard returns null for empty/nullish pattern', () => {
+  const cards = [{ index: '0', name: 'Some Device' }];
+  assert.equal(alsa.findCard(cards, ''), null);
+  assert.equal(alsa.findCard(cards, null), null);
+  assert.equal(alsa.findCard(cards, undefined), null);
+});
+
+// ── watchDevice ─────────────────────────────────────────────────────────────
+
+test('U3.T15: watchDevice fires onAppear when device transitions absent→present', async () => {
+  const appeared = [];
+  let callCount = 0;
+  // First call: no device. Second call: device present.
+  const listCardsFn = async () => {
+    callCount++;
+    if (callCount < 2) return [{ index: '0', name: 'bcm2835 Headphones' }];
+    return [
+      { index: '0', name: 'bcm2835 Headphones' },
+      { index: '1', name: 'USB Audio Device' },
+    ];
+  };
+
+  const stop = alsa.watchDevice('USB Audio', {
+    onAppear: (card) => appeared.push(card),
+    intervalMs: 20,
+    listCardsFn,
+  });
+
+  // Wait enough time for two ticks
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+
+  assert.equal(appeared.length, 1);
+  assert.deepEqual(appeared[0], { index: '1', name: 'USB Audio Device' });
+});
+
+test('U3.T16: watchDevice fires onDisappear when device transitions present→absent', async () => {
+  const disappeared = [];
+  let callCount = 0;
+  // First call: device present. Second call: gone.
+  const listCardsFn = async () => {
+    callCount++;
+    if (callCount < 2) {
+      return [
+        { index: '0', name: 'bcm2835 Headphones' },
+        { index: '1', name: 'USB Audio Device' },
+      ];
+    }
+    return [{ index: '0', name: 'bcm2835 Headphones' }];
+  };
+
+  const stop = alsa.watchDevice('USB Audio', {
+    onDisappear: () => disappeared.push(true),
+    intervalMs: 20,
+    listCardsFn,
+  });
+
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+
+  assert.equal(disappeared.length, 1);
+});
+
+test('U3.T17: watchDevice does not re-fire when presence is stable', async () => {
+  const appeared = [];
+  // Always returns the device present
+  const listCardsFn = async () => [{ index: '1', name: 'USB Audio Device' }];
+
+  const stop = alsa.watchDevice('USB Audio', {
+    onAppear: (card) => appeared.push(card),
+    intervalMs: 20,
+    listCardsFn,
+  });
+
+  await new Promise((r) => setTimeout(r, 80));
+  stop();
+
+  // Should fire exactly once on the first tick, not on subsequent stable ticks
+  assert.equal(appeared.length, 1);
+});
+
+test('U3.T18: watchDevice stop() cancels polling', async () => {
+  let listCallCount = 0;
+  const listCardsFn = async () => { listCallCount++; return []; };
+
+  const stop = alsa.watchDevice('USB Audio', {
+    intervalMs: 20,
+    listCardsFn,
+  });
+
+  await new Promise((r) => setTimeout(r, 30));
+  const countAtStop = listCallCount;
+  stop();
+  await new Promise((r) => setTimeout(r, 60));
+
+  // No additional polls after stop
+  assert.equal(listCallCount, countAtStop);
 });

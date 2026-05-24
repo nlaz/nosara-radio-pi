@@ -31,6 +31,10 @@ function createApp(deps = {}) {
   const execFile = deps.execFile || cp.execFile;
   const getPin = deps.getPin || (() => process.env.RADIO_PIN);
   const getSessionSecret = deps.getSessionSecret || (() => process.env.RADIO_SESSION_SECRET);
+  // RADIO_ALSA_DEVICE_NAME: substring matched against `aplay -l` card names.
+  // When set, the server polls for this device and restarts ffplay whenever
+  // it appears (e.g. a USB transmitter powered on after boot).
+  const getDeviceName = deps.getDeviceName || (() => process.env.RADIO_ALSA_DEVICE_NAME || '');
   const rateLimiter = deps.rateLimiter || auth.createRateLimiter();
   const now = deps.now || (() => Date.now());
 
@@ -43,6 +47,7 @@ function createApp(deps = {}) {
     pollTimer: null,
     rebootPending: false,
     audioCache: { percent: null, muted: null }, // last known good ALSA state
+    transmitter: { present: false, card: null }, // hotplug USB audio device state
   };
 
   // Prime audio cache once at boot; tolerate failure (e.g., dev workstation
@@ -50,6 +55,25 @@ function createApp(deps = {}) {
   alsa.getVolume().then((v) => {
     state.audioCache = { percent: v.percent, muted: v.muted };
   }).catch(() => { /* leave cache as null; /api/status will surface error */ });
+
+  // Device watcher: poll for the USB transmitter by name and restart ffplay
+  // when it appears (covers the case where it's powered on after boot).
+  const deviceName = getDeviceName();
+  const stopDeviceWatch = deviceName
+    ? alsa.watchDevice(deviceName, {
+        onAppear(card) {
+          alsa.setCard(card.index);
+          state.transmitter = { present: true, card: card.index };
+          const { status } = stream.getStatus();
+          if (status === 'playing' || status === 'connecting') {
+            stream.restart();
+          }
+        },
+        onDisappear() {
+          state.transmitter = { present: false, card: null };
+        },
+      })
+    : () => {};
 
   async function resolveActive() {
     const cfg = config.read();
@@ -154,6 +178,9 @@ function createApp(deps = {}) {
       active: cfg.active,
       presets: cfg.presets,
       rebootPending: state.rebootPending,
+      transmitter: deviceName
+        ? { present: state.transmitter.present, card: state.transmitter.card }
+        : null,
     });
   });
 
@@ -401,7 +428,7 @@ function createApp(deps = {}) {
     res.sendFile(idx);
   });
 
-  return { app, state, refreshStation, schedulePoll, stopPoll };
+  return { app, state, refreshStation, schedulePoll, stopPoll, stopDeviceWatch };
 }
 
 async function boot() {
