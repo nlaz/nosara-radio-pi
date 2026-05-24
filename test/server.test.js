@@ -19,7 +19,7 @@ function makeMocks(overrides = {}) {
       _status: 'stopped',
       _streamUrl: null,
       _calls: [],
-      getStatus() { return { status: this._status, streamUrl: this._streamUrl }; },
+      getStatus() { return { status: this._status, errorMessage: null, streamUrl: this._streamUrl }; },
       start(url) { this._calls.push(['start', url]); this._status = 'connecting'; this._streamUrl = url; },
       stop() { this._calls.push(['stop']); this._status = 'stopped'; },
       pause() { this._calls.push(['pause']); this._status = 'paused'; },

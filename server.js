@@ -166,7 +166,7 @@ function createApp(deps = {}) {
     const cfg = config.read();
     const bridge = stream.getStatus();
     res.json({
-      bridge: { status: bridge.status, streamUrl: bridge.streamUrl },
+      bridge: { status: bridge.status, errorMessage: bridge.errorMessage ?? null, streamUrl: bridge.streamUrl },
       station: state.stationCache
         ? {
             ...state.stationCache,

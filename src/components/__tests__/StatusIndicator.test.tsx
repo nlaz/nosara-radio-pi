@@ -22,4 +22,15 @@ describe('StatusIndicator', () => {
     const { container } = render(<StatusIndicator status={null} />);
     expect(container.querySelector('.status-stopped')).toBeInTheDocument();
   });
+
+  test('shows errorMessage instead of "Error" when status is error and message is set', () => {
+    render(<StatusIndicator status="error" errorMessage="No audio device" />);
+    expect(screen.getByText('No audio device')).toBeInTheDocument();
+    expect(screen.queryByText('Error')).not.toBeInTheDocument();
+  });
+
+  test('shows generic "Error" when status is error and errorMessage is null', () => {
+    render(<StatusIndicator status="error" errorMessage={null} />);
+    expect(screen.getByText('Error')).toBeInTheDocument();
+  });
 });

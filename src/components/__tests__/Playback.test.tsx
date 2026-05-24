@@ -6,7 +6,7 @@ import type { AppStatus } from '../../types';
 vi.mock('../api');
 
 const baseStatus: AppStatus = {
-  bridge: { status: 'stopped', streamUrl: null },
+  bridge: { status: 'stopped', errorMessage: null, streamUrl: null },
   station: {
     slug: 'test-station',
     kind: 'station',
@@ -32,7 +32,7 @@ describe('Playback', () => {
   });
 
   test('U5.T2: Pause button has label "Pause" (no ❚❚ prefix) when playing', () => {
-    const playing: AppStatus = { ...baseStatus, bridge: { status: 'playing', streamUrl: null } };
+    const playing: AppStatus = { ...baseStatus, bridge: { status: 'playing', errorMessage: null, streamUrl: null } };
     render(<Playback status={playing} onRefresh={() => {}} />);
     expect(screen.getByRole('button', { name: /^pause$/i })).toBeInTheDocument();
     expect(screen.queryByText(/❚❚/)).not.toBeInTheDocument();

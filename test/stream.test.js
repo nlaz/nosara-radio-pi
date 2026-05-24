@@ -174,3 +174,55 @@ test('setStation from stopped state starts the player', async (t) => {
   assert.equal(children[0]._url, 'http://first');
   assert.equal(stream.getStatus().status, 'connecting');
 });
+
+test('U2.T11: "No more combinations to try" sets errorMessage to No audio device', async (t) => {
+  const child = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => child);
+  stream.start('http://x/s');
+  child.stderr.write('No more combinations to try, audio open failed\n');
+  await tick();
+  const s = stream.getStatus();
+  assert.equal(s.status, 'error');
+  assert.equal(s.errorMessage, 'No audio device');
+});
+
+test('U2.T12: "Connection refused" sets errorMessage to Stream unreachable', async (t) => {
+  const child = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => child);
+  stream.start('http://x/s');
+  child.stderr.write('Connection refused\n');
+  await tick();
+  const s = stream.getStatus();
+  assert.equal(s.status, 'error');
+  assert.equal(s.errorMessage, 'Stream unreachable');
+});
+
+test('U2.T13: errorMessage resets to null on restart after error', async (t) => {
+  const children = [];
+  t.mock.method(cp, 'spawn', () => {
+    const c = makeFakeChild();
+    children.push(c);
+    return c;
+  });
+  stream.start('http://x/s');
+  children[0].stderr.write('No more combinations to try\n');
+  await tick();
+  assert.equal(stream.getStatus().errorMessage, 'No audio device');
+  // Restart: kill old proc, spawn new one
+  stream.restart();
+  await tick(3);
+  assert.equal(stream.getStatus().errorMessage, null);
+});
+
+test('U2.T14: unexpected exit sets error with null errorMessage', async (t) => {
+  const child = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => child);
+  stream.start('http://x/s');
+  child.stderr.write('Stream #0:0: Audio:\n');
+  await tick();
+  child.emit('exit', 1, null);
+  await tick();
+  const s = stream.getStatus();
+  assert.equal(s.status, 'error');
+  assert.equal(s.errorMessage, null);
+});

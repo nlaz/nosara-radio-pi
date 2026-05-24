@@ -21,6 +21,7 @@ function streamTail(raw: string): string {
 export function MonitorColumn({ status }: MonitorColumnProps) {
   const station = status?.station ?? null;
   const bridgeStatus = status?.bridge.status ?? null;
+  const bridgeErrorMessage = status?.bridge.errorMessage ?? null;
   const streamUrl = station?.streamUrl ?? null;
   const meterActive = bridgeStatus === 'playing' || bridgeStatus === 'connecting';
 
@@ -29,7 +30,7 @@ export function MonitorColumn({ status }: MonitorColumnProps) {
       <StationCard station={station} />
       <LevelMeter streamUrl={streamUrl} active={meterActive} />
       <div className="monitor-footer">
-        <StatusIndicator status={bridgeStatus} />
+        <StatusIndicator status={bridgeStatus} errorMessage={bridgeErrorMessage} />
         {status?.bridge.streamUrl && (
           <span className="stream-source mono" title={status.bridge.streamUrl}>
             {streamTail(status.bridge.streamUrl)}

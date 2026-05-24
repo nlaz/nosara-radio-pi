@@ -26,7 +26,7 @@ export interface AudioState {
 }
 
 export interface AppStatus {
-  bridge: { status: BridgeStatus; streamUrl: string | null };
+  bridge: { status: BridgeStatus; errorMessage: string | null; streamUrl: string | null };
   station: StationData;
   audio: AudioState;
   active: string;

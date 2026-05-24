@@ -1,21 +1,24 @@
 const childProcess = require('child_process');
 const readline = require('readline');
 
+// Each entry maps an ffplay stderr pattern to the human-readable error cause
+// shown in the UI. Earlier entries take priority (first match wins).
 const ERROR_PATTERNS = [
-  'Connection refused',
-  'Connection timed out',
-  'Operation timed out',
-  'No route to host',
-  'Failed to resolve hostname',
-  'Input/output error',
-  'Invalid data found',
-  'HTTP error',
-  'Server returned',
-  'No such file',
-  'No more combinations to try',
+  { pattern: 'No more combinations to try', cause: 'No audio device' },
+  { pattern: 'Failed to resolve hostname',  cause: 'Cannot resolve hostname' },
+  { pattern: 'Connection refused',          cause: 'Stream unreachable' },
+  { pattern: 'No route to host',            cause: 'Stream unreachable' },
+  { pattern: 'Connection timed out',        cause: 'Connection timed out' },
+  { pattern: 'Operation timed out',         cause: 'Connection timed out' },
+  { pattern: 'HTTP error',                  cause: 'Stream error' },
+  { pattern: 'Server returned',             cause: 'Stream error' },
+  { pattern: 'Input/output error',          cause: 'Stream error' },
+  { pattern: 'Invalid data found',          cause: 'Stream error' },
+  { pattern: 'No such file',               cause: 'Stream error' },
 ];
 
 let status = 'stopped';
+let errorMessage = null;   // human-readable cause of the current 'error' status
 let currentStreamUrl = null;
 let proc = null;
 // What we intend the next exit to mean: 'stop' | 'pause' | null
@@ -31,6 +34,7 @@ function startInternal(url) {
   if (proc) return;
   currentStreamUrl = url;
   status = 'connecting';
+  errorMessage = null;
   intent = null;
 
   proc = spawnPlayer(url);
@@ -42,9 +46,10 @@ function startInternal(url) {
       status = 'playing';
       return;
     }
-    for (const pattern of ERROR_PATTERNS) {
+    for (const { pattern, cause } of ERROR_PATTERNS) {
       if (line.includes(pattern)) {
         status = 'error';
+        errorMessage = cause;
         return;
       }
     }
@@ -53,9 +58,9 @@ function startInternal(url) {
   proc.on('exit', () => {
     rl.close();
     proc = null;
-    if (intent === 'stop') status = 'stopped';
-    else if (intent === 'pause') status = 'paused';
-    else if (status !== 'error') status = 'error';
+    if (intent === 'stop') { status = 'stopped'; errorMessage = null; }
+    else if (intent === 'pause') { status = 'paused'; errorMessage = null; }
+    else if (status !== 'error') { status = 'error'; errorMessage = null; }
     intent = null;
   });
 }
@@ -116,11 +121,12 @@ function setStation({ streamUrl } = {}) {
 }
 
 function getStatus() {
-  return { status, streamUrl: currentStreamUrl };
+  return { status, errorMessage, streamUrl: currentStreamUrl };
 }
 
 function _resetForTests() {
   status = 'stopped';
+  errorMessage = null;
   currentStreamUrl = null;
   proc = null;
   intent = null;
