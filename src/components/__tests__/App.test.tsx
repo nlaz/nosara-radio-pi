@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { App } from '../../App';
+import type { AppStatus } from '../../types';
 
 // Mock child columns so tests focus on App structure only
 vi.mock('../MonitorColumn', () => ({
@@ -11,7 +12,10 @@ vi.mock('../ControlColumn', () => ({
 }));
 
 // Mock useStatus — default: no error
-const mockUseStatus = vi.fn(() => ({ status: null, error: null as string | null, refresh: vi.fn() }));
+const mockUseStatus = vi.fn(
+  (): { status: AppStatus | null; error: string | null; refresh: () => void } =>
+    ({ status: null, error: null, refresh: vi.fn() }),
+);
 vi.mock('../../hooks/useStatus', () => ({
   useStatus: () => mockUseStatus(),
 }));
