@@ -11,7 +11,7 @@ vi.mock('../ControlColumn', () => ({
 }));
 
 // Mock useStatus — default: no error
-const mockUseStatus = vi.fn(() => ({ status: null, error: null, refresh: vi.fn() }));
+const mockUseStatus = vi.fn(() => ({ status: null, error: null as string | null, refresh: vi.fn() }));
 vi.mock('../../hooks/useStatus', () => ({
   useStatus: () => mockUseStatus(),
 }));
