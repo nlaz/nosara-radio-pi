@@ -176,7 +176,6 @@ function createApp(deps = {}) {
         : { slug: cfg.active, kind: null, streamUrl: null, name: null, image: null, host: null, description: null, online: null, listeners: null, fetchedAt: null, apiReachable: state.apiReachable },
       audio,
       active: cfg.active,
-      presets: cfg.presets,
       rebootPending: state.rebootPending,
       transmitter: deviceName
         ? { present: state.transmitter.present, card: state.transmitter.card }
@@ -281,42 +280,6 @@ function createApp(deps = {}) {
       }
       res.status(502).json({ error: err.message });
     }
-  });
-
-  app.get('/api/presets', (_req, res) => {
-    res.json(config.read().presets);
-  });
-
-  app.post('/api/presets', (req, res) => {
-    const { slug, label } = req.body || {};
-    if (typeof slug !== 'string' || !slug.trim()) {
-      return res.status(400).json({ error: 'slug is required' });
-    }
-    try {
-      evenings.extractSlug(slug);
-    } catch (err) {
-      if (err.name === 'InvalidInput') return res.status(400).json({ error: err.message });
-      throw err;
-    }
-    const cfg = config.read();
-    if (cfg.presets.some((p) => p.slug === slug)) {
-      return res.status(409).json({ error: 'preset already exists' });
-    }
-    cfg.presets.push({ slug, label: typeof label === 'string' && label.trim() ? label : slug });
-    config.write(cfg);
-    res.status(201).json(cfg.presets);
-  });
-
-  app.delete('/api/presets/:slug', (req, res) => {
-    const { slug } = req.params;
-    const cfg = config.read();
-    const next = cfg.presets.filter((p) => p.slug !== slug);
-    if (next.length === cfg.presets.length) {
-      return res.status(404).json({ error: 'preset not found' });
-    }
-    cfg.presets = next;
-    config.write(cfg);
-    res.json(cfg.presets);
   });
 
   // --- Service / device controls ---------------------------------------

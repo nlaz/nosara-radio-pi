@@ -53,7 +53,6 @@ describe('App', () => {
         host: null, online: null, listeners: null, fetchedAt: null, apiReachable: true },
       audio: { percent: null, muted: null, error: null },
       active: 'test',
-      presets: [],
     };
     mockUseStatus.mockReturnValue({ status: errorStatus, error: null, refresh: vi.fn() });
     await act(async () => { render(<App />); });
@@ -68,7 +67,6 @@ describe('App', () => {
         host: null, online: null, listeners: null, fetchedAt: null, apiReachable: true },
       audio: { percent: null, muted: null, error: null },
       active: 'test',
-      presets: [],
     };
     mockUseStatus.mockReturnValue({ status: errorStatus, error: null, refresh: vi.fn() });
     await act(async () => { render(<App />); });

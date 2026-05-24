@@ -1,10 +1,5 @@
 export type BridgeStatus = 'stopped' | 'connecting' | 'playing' | 'paused' | 'error';
 
-export interface Preset {
-  slug: string;
-  label: string;
-}
-
 export interface StationData {
   slug: string | null;
   kind: 'station' | 'media' | null;
@@ -30,5 +25,4 @@ export interface AppStatus {
   station: StationData;
   audio: AudioState;
   active: string;
-  presets: Preset[];
 }

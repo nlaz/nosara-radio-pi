@@ -91,7 +91,7 @@ describe('U4: api 401 handling + stampede guard', () => {
     const results = await Promise.allSettled([
       api.getStatus(),
       api.play(),
-      api.listPresets(),
+      api.stop(),
     ]);
     // All three rejected with ApiError(401)
     for (const r of results) {

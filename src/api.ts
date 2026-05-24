@@ -1,4 +1,4 @@
-import type { AppStatus, AudioState, Preset, StationData } from './types';
+import type { AppStatus, AudioState, StationData } from './types';
 
 export interface ApiError extends Error {
   status: number;
@@ -85,10 +85,5 @@ export const api = {
     requestJson<AudioState>('PUT', '/api/mute', { muted }),
   setStation: (input: string) =>
     requestJson<{ ok: true; station: StationData }>('PUT', '/api/station', { input }),
-  listPresets: () => requestJson<Preset[]>('GET', '/api/presets'),
-  addPreset: (slug: string, label: string) =>
-    requestJson<Preset[]>('POST', '/api/presets', { slug, label }),
-  deletePreset: (slug: string) =>
-    requestJson<Preset[]>('DELETE', `/api/presets/${encodeURIComponent(slug)}`),
   getLogs: (lines = 200) => requestText('GET', `/api/logs?lines=${lines}`),
 };

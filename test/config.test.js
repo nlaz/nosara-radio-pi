@@ -29,12 +29,8 @@ test('U1.T9: migrates legacy { url } shape with media URL', isolated(({ configPa
   const config = require('../config');
   const state = config.read();
   assert.equal(state.active, 'Kwekx1JG0');
-  assert.equal(state.presets.length, 1);
-  assert.equal(state.presets[0].slug, 'Kwekx1JG0');
-  assert.equal(state.presets[0].label, 'Imported');
   const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   assert.equal(onDisk.active, 'Kwekx1JG0');
-  assert.ok(Array.isArray(onDisk.presets));
 }));
 
 test('U1.T9b: migrates legacy { url } shape with station URL', isolated(({ configPath }) => {
@@ -42,15 +38,10 @@ test('U1.T9b: migrates legacy { url } shape with station URL', isolated(({ confi
   const config = require('../config');
   const state = config.read();
   assert.equal(state.active, 'nosara-pirate-radio');
-  assert.equal(state.presets[0].slug, 'nosara-pirate-radio');
-  assert.equal(state.presets[0].label, 'nosara-pirate-radio');
 }));
 
 test('U1.T10: passes through already-migrated config unchanged', isolated(({ configPath }) => {
-  const initial = {
-    active: 'nosara-pirate-radio',
-    presets: [{ slug: 'nosara-pirate-radio', label: 'Nosara Pirate Radio' }],
-  };
+  const initial = { active: 'nosara-pirate-radio' };
   fs.writeFileSync(configPath, JSON.stringify(initial, null, 2));
   const before = fs.readFileSync(configPath, 'utf8');
   const config = require('../config');
@@ -65,32 +56,26 @@ test('U1.T10b: defaults applied when file is missing', isolated(({ configPath })
   const config = require('../config');
   const state = config.read();
   assert.ok(state.active);
-  assert.ok(Array.isArray(state.presets));
-  assert.ok(state.presets.length > 0);
   assert.ok(fs.existsSync(configPath));
 }));
 
 test('write persists state to disk', isolated(({ configPath }) => {
   const config = require('../config');
-  config.write({ active: 'foo', presets: [{ slug: 'foo', label: 'Foo' }] });
+  config.write({ active: 'foo' });
   const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   assert.equal(onDisk.active, 'foo');
-  assert.equal(onDisk.presets[0].slug, 'foo');
 }));
 
 test('write validates shape', isolated(() => {
   const config = require('../config');
   assert.throws(() => config.write({}), TypeError);
-  assert.throws(() => config.write({ active: 'x' }), TypeError);
   assert.throws(() => config.write(null), TypeError);
 }));
 
 test('U1.T11: concurrent writes produce valid JSON', isolated(({ configPath }) => {
   const config = require('../config');
-  // writeFileSync is synchronous; "concurrent" is really sequential but rapid.
-  // The invariant we verify is that no partial-write state appears between calls.
   for (let i = 0; i < 20; i++) {
-    config.write({ active: `s${i}`, presets: [{ slug: `s${i}`, label: `S${i}` }] });
+    config.write({ active: `s${i}` });
     const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.equal(onDisk.active, `s${i}`);
   }

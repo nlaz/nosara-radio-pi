@@ -21,7 +21,6 @@ const baseStatus: AppStatus = {
   },
   audio: { percent: 80, muted: false, error: null },
   active: 'test-station',
-  presets: [],
 };
 
 describe('Playback', () => {

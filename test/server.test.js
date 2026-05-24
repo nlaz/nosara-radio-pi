@@ -10,7 +10,7 @@ class InvalidInput extends Error { constructor(s) { super(s); this.name = 'Inval
 function makeMocks(overrides = {}) {
   return {
     config: {
-      _state: { active: 'demo', presets: [{ slug: 'demo', label: 'Demo' }] },
+      _state: { active: 'demo' },
       read() { return JSON.parse(JSON.stringify(this._state)); },
       write(s) { this._state = JSON.parse(JSON.stringify(s)); },
       ...overrides.config,
@@ -132,7 +132,6 @@ test('U4.T1: GET /api/status returns the aggregated shape', async () => {
     assert.equal(json.audio.percent, 80);
     assert.equal(json.audio.muted, false);
     assert.equal(json.active, 'demo');
-    assert.deepEqual(json.presets, [{ slug: 'demo', label: 'Demo' }]);
   });
 });
 
@@ -196,20 +195,6 @@ test('U4.T7: PUT /api/mute toggles via alsa.setMuted', async () => {
   await withApp(mocks, async ({ srv }) => {
     await request(srv, 'PUT', '/api/mute', { muted: true });
     assert.deepEqual(calls, [true]);
-  });
-});
-
-test('U4.T8: preset CRUD (POST, GET, DELETE)', async () => {
-  await withApp(makeMocks(), async ({ srv }) => {
-    const add = await request(srv, 'POST', '/api/presets', { slug: 'nosara-pirate-radio', label: 'Nosara' });
-    assert.equal(add.status, 201);
-    assert.equal(add.json.length, 2);
-    const list = await request(srv, 'GET', '/api/presets');
-    assert.equal(list.json.length, 2);
-    const del = await request(srv, 'DELETE', '/api/presets/demo');
-    assert.equal(del.status, 200);
-    assert.equal(del.json.length, 1);
-    assert.equal(del.json[0].slug, 'nosara-pirate-radio');
   });
 });
 
@@ -410,20 +395,6 @@ test('U4.T21: GET /api/logs returns JSON error on journalctl failure', async () 
     const { status, json } = await request(srv, 'GET', '/api/logs');
     assert.equal(status, 500);
     assert.equal(json.error, 'stderr msg');
-  });
-});
-
-test('U4.T22: POST /api/presets rejects invalid slug via evenings.extractSlug', async () => {
-  const mocks = makeMocks({
-    evenings: {
-      extractSlug: () => { throw new InvalidInput('bad'); },
-      resolveStation: async () => ({ slug: 'demo', kind: 'station', streamUrl: null, name: null, image: null, host: null, online: null, listeners: null, fetchedAt: null, apiReachable: true }),
-      InvalidInput, StationNotFoundError, EveningsApiUnreachable,
-    },
-  });
-  await withApp(mocks, async ({ srv }) => {
-    const { status } = await request(srv, 'POST', '/api/presets', { slug: '!!bad!!', label: 'x' });
-    assert.equal(status, 400);
   });
 });
 

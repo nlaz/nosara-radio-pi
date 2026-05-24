@@ -1,36 +1,29 @@
 const fs = require('fs');
 const path = require('path');
-const { extractSlug } = require('./evenings');
 
 const CONFIG_PATH = process.env.RADIO_CONFIG_PATH || path.join(__dirname, 'config.json');
 
 const DEFAULT_STATE = Object.freeze({
   active: 'nosara-pirate-radio',
-  presets: [{ slug: 'nosara-pirate-radio', label: 'Nosara Pirate Radio' }],
 });
 
 function defaults() {
-  return {
-    active: DEFAULT_STATE.active,
-    presets: DEFAULT_STATE.presets.map((p) => ({ ...p })),
-  };
+  return { active: DEFAULT_STATE.active };
 }
 
 function isNewShape(raw) {
   return raw
     && typeof raw === 'object'
-    && typeof raw.active === 'string'
-    && Array.isArray(raw.presets);
+    && typeof raw.active === 'string';
 }
 
 function migrateFromLegacy(raw) {
   if (!raw || typeof raw !== 'object' || typeof raw.url !== 'string') return null;
+  const { extractSlug } = require('./evenings');
   let classification;
   try { classification = extractSlug(raw.url); }
   catch { classification = { kind: 'media', slug: raw.url }; }
-  const { slug, kind } = classification;
-  const label = kind === 'station' ? slug : 'Imported';
-  return { active: slug, presets: [{ slug, label }] };
+  return { active: classification.slug };
 }
 
 function readFromDisk() {
@@ -40,17 +33,17 @@ function readFromDisk() {
 
 function read() {
   const raw = readFromDisk();
-  if (isNewShape(raw)) return raw;
+  if (isNewShape(raw)) return { active: raw.active };
   const migrated = migrateFromLegacy(raw) || defaults();
   write(migrated);
   return migrated;
 }
 
 function write(state) {
-  if (!state || typeof state.active !== 'string' || !Array.isArray(state.presets)) {
-    throw new TypeError('config.write expects { active, presets[] }');
+  if (!state || typeof state.active !== 'string') {
+    throw new TypeError('config.write expects { active }');
   }
-  const data = { active: state.active, presets: state.presets };
+  const data = { active: state.active };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2) + '\n');
 }
 

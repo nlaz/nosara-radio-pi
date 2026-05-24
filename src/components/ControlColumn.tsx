@@ -1,7 +1,6 @@
 import type { AppStatus } from '../types';
 import { Playback } from './Playback';
 import { StreamRow } from './StreamRow';
-import { Presets } from './Presets';
 import { ServiceRow } from './ServiceRow';
 import './ControlColumn.css';
 
@@ -19,7 +18,6 @@ export function ControlColumn({ status, onRefresh }: ControlColumnProps) {
     <section className="control-column" aria-label="Controls">
       <Playback status={status} onRefresh={onRefresh} />
       <StreamRow status={status} onRefresh={onRefresh} />
-      <Presets status={status} onRefresh={onRefresh} />
       <ServiceRow onRefresh={onRefresh} serverReachable={serverReachable} />
     </section>
   );
